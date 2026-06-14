@@ -1,7 +1,8 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: "db/migrations"
+    # Schema source of truth = the Supabase CLI migrations at the repo root.
+    schema: "../../supabase/migrations"
     queries: "db/queries"
     gen:
       go:

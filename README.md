@@ -29,9 +29,11 @@ apps/
       ai/            #   Gemini client: text -> []Transaction (JSON mode)
       store/         #   sqlc-generated queries + pgx pool wrapper
       telegram/      #   text / photo / image-document handlers
-    db/migrations/   #   goose .sql migrations (source of truth)
     db/queries/      #   sqlc query definitions
   dashboard/         # React 19 + Vite + TanStack Router/Query + Tailwind v4 + Recharts
+supabase/
+  config.toml        # Supabase CLI project config
+  migrations/        # SQL migrations (schema source of truth, applied via `supabase db push`)
 packages/
   config/            # shared tsconfig + eslint for the JS side
 turbo.json           # build / dev / lint pipeline
@@ -66,7 +68,7 @@ Put all of these in a `.env` file at the repo root (copy from `.env.example`):
     (installs `ind`/`eng` into `/opt/homebrew/share/tessdata`)
   - Debian/Ubuntu: `sudo apt-get install tesseract-ocr tesseract-ocr-ind tesseract-ocr-eng libtesseract-dev libleptonica-dev`
 - **sqlc** (generate DB code) — `brew install sqlc`
-- **goose** (run migrations) — `go install github.com/pressly/goose/v3/cmd/goose@latest`
+- **Supabase CLI** (run migrations) — `brew install supabase/tap/supabase`
 
 > The bot uses CGO to link Tesseract. On macOS Homebrew, Leptonica is keg-only;
 > the bot's npm scripts (`apps/bot/scripts/go.sh`) set the right `CGO_*` paths
@@ -83,14 +85,20 @@ pnpm install
 cp .env.example .env
 $EDITOR .env          # fill in the keys from the table above
 
-# 3. Create the database schema (point goose at your Supabase DATABASE_URL)
-goose -dir apps/bot/db/migrations postgres "$DATABASE_URL" up
-#    …or: pnpm --filter @kitacatat/bot run migrate:up
+# 3. Apply the database schema to your Supabase project (Supabase CLI).
+#    Find <project-ref> in your project's URL or Project Settings → General.
+supabase login                       # one-time, opens a browser
+supabase link --project-ref <project-ref>
+supabase db push                     # applies supabase/migrations/*
+#    …or from package scripts: pnpm db:push
 
 # 4. (Re)generate type-safe DB code from db/queries — only needed if you change
-#    the migrations or queries; generated code is already committed.
+#    the schema (supabase/migrations) or queries; generated code is committed.
 cd apps/bot && sqlc generate && cd -
 #    …or: pnpm --filter @kitacatat/bot run sqlc
+
+#    To add a new migration later:  pnpm db:new <name>   (then edit the file,
+#    then pnpm db:push). To iterate locally with Docker: supabase db reset.
 ```
 
 ## Run
@@ -151,24 +159,26 @@ plus `tesseract-ocr-ind` + `tesseract-ocr-eng` and sets `TESSDATA_PREFIX`.
 
 ## Data model & Row Level Security
 
-Migration `00001` creates `transactions`; migration `00002` adds the auth layer:
+The baseline migration in `supabase/migrations/` creates:
 
 - **`profiles`** — one row per Supabase Auth user (auto-created by a trigger on
   `auth.users`), with a unique `telegram_id` filled in at link time.
 - **`telegram_link_codes`** — single-use, 15-minute codes. Created only via the
-  `request_telegram_link_code()` RPC (`SECURITY DEFINER`); consumed by the bot.
-- **`transactions.user_id`** is now a `uuid` FK to `profiles(id)` — the bot looks
-  up the profile by `telegram_id` and stamps each transaction with it.
+  `request_telegram_link_code()` RPC (`SECURITY DEFINER`, locked to the
+  `authenticated` role); consumed by the bot.
+- **`transactions.user_id`** is a `uuid` FK to `profiles(id)` — the bot looks up
+  the profile by `telegram_id` and stamps each transaction with it.
 
-RLS:
+RLS (all policies scoped with `TO authenticated`):
 
-- `profiles`: a user can only read/update their own row (`auth.uid() = id`).
-- `transactions`: any logged-in family member can **read all** rows
-  (`auth.uid() IS NOT NULL`) — a shared household view. To isolate per user
-  instead, change the policy to `USING (auth.uid() = user_id)` (noted inline in
-  `apps/bot/db/migrations/00002_auth_linking.sql`).
-- The bot writes via the direct Postgres connection, which bypasses RLS, so no
-  write policies exist.
+- `profiles`: a user can only read/update their own row (`auth.uid() = id`;
+  the update policy also has a matching `WITH CHECK`).
+- `transactions`: any logged-in family member can **read all** rows (`USING
+  (true)`) — a shared household view. To isolate per user instead, change the
+  policy to `USING ((select auth.uid()) = user_id)` (noted inline in the
+  migration).
+- The bot writes via the direct Postgres connection, which bypasses RLS, so
+  there are no write policies/grants for `anon`/`authenticated`.
 
 ## How parsing works
 
