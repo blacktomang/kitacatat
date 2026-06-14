@@ -1,0 +1,14 @@
+{
+  "name": "@kitacatat/bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram finance bot (Go). Turbo runs these thin wrappers around the Go toolchain.",
+  "scripts": {
+    "dev": "sh scripts/go.sh run ./cmd/bot",
+    "build": "sh scripts/go.sh build -o bin/bot ./cmd/bot",
+    "lint": "sh scripts/go.sh vet ./...",
+    "sqlc": "sqlc generate",
+    "migrate:up": "goose -dir db/migrations postgres \"$DATABASE_URL\" up",
+    "migrate:down": "goose -dir db/migrations postgres \"$DATABASE_URL\" down"
+  }
+}

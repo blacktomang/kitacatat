@@ -1,0 +1,8 @@
+bin/
+bot
+*.local
+.env
+.env.*
+!.env.example
+node_modules/
+.turbo/

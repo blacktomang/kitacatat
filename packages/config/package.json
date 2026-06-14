@@ -1,0 +1,20 @@
+{
+  "name": "@kitacatat/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared TypeScript + ESLint config for the JS side of the monorepo.",
+  "files": [
+    "tsconfig.base.json",
+    "eslint.config.js"
+  ],
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./eslint": "./eslint.config.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "typescript-eslint": "^8.18.0"
+  }
+}

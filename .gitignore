@@ -1,0 +1,22 @@
+# Node
+node_modules/
+.turbo/
+dist/
+*.local
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Go
+apps/bot/bin/
+apps/bot/bot
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# TanStack Router generated
+apps/dashboard/src/routeTree.gen.ts

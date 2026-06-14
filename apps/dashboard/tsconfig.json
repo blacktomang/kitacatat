@@ -1,0 +1,7 @@
+{
+  "extends": "@kitacatat/config/tsconfig.base.json",
+  "include": ["src"],
+  "compilerOptions": {
+    "types": ["vite/client"]
+  }
+}
