@@ -100,6 +100,9 @@ func (o *openaiParser) ParseTransactions(ctx context.Context, text, extraContext
 	if err != nil {
 		return nil, fmt.Errorf("ai: read response: %w", err)
 	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(raw)))
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ai: provider returned %s: %s", resp.Status, strings.TrimSpace(string(raw)))
 	}

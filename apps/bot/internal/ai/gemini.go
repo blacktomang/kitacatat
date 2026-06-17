@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -47,6 +48,10 @@ func (g *geminiParser) ParseTransactions(ctx context.Context, text, extraContext
 		},
 	)
 	if err != nil {
+		var apiErr genai.APIError
+		if errors.As(err, &apiErr) && (apiErr.Code == 429 || apiErr.Code == 503) {
+			return nil, fmt.Errorf("%w: %s", ErrRateLimited, apiErr.Message)
+		}
 		return nil, fmt.Errorf("ai: generate content: %w", err)
 	}
 	return decode(resp.Text())

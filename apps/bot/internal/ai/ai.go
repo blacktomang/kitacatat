@@ -10,12 +10,18 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kitacatat/bot/internal/domain"
 )
+
+// ErrRateLimited is returned (wrapped) when the provider rejects the request
+// because of a rate limit, quota, or temporary overload (HTTP 429 / 503). It
+// lets callers show a distinct "try again later" message regardless of provider.
+var ErrRateLimited = errors.New("ai: rate limited / quota exceeded")
 
 // Parser turns text into structured transactions. Returned transactions have
 // every field except ownership populated; the caller validates and saves them.

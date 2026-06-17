@@ -187,6 +187,10 @@ func (h *Handler) parseAndReply(c tele.Context, text, caption string) error {
 	candidates, err := h.ai.ParseTransactions(ctx, text, caption)
 	if err != nil {
 		log.Printf("parse transactions: %v", err)
+		if errors.Is(err, ai.ErrRateLimited) {
+			return c.Send("⏳ Layanan AI lagi sibuk atau kuotanya penuh. " +
+				"Coba lagi beberapa saat lagi ya.")
+		}
 		return c.Send("Maaf, ada masalah saat memproses. Coba lagi ya.")
 	}
 
