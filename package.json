@@ -5,9 +5,12 @@
   "description": "Personal finance tracker for family use: Telegram bot (Go) + React dashboard",
   "packageManager": "pnpm@9.12.0",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "sh scripts/dev.sh",
+    "dev:apps": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
     "db:new": "supabase migration new",
     "db:push": "supabase db push",
     "db:pull": "supabase db pull",

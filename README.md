@@ -68,7 +68,8 @@ Put all of these in a `.env` file at the repo root (copy from `.env.example`):
     (installs `ind`/`eng` into `/opt/homebrew/share/tessdata`)
   - Debian/Ubuntu: `sudo apt-get install tesseract-ocr tesseract-ocr-ind tesseract-ocr-eng libtesseract-dev libleptonica-dev`
 - **sqlc** (generate DB code) — `brew install sqlc`
-- **Supabase CLI** (run migrations) — `brew install supabase/tap/supabase`
+- **Supabase CLI** (migrations + local stack) — `brew install supabase/tap/supabase`
+- **Docker** (for the local Supabase stack used by `pnpm dev`) — Docker Desktop / OrbStack / colima
 
 > The bot uses CGO to link Tesseract. On macOS Homebrew, Leptonica is keg-only;
 > the bot's npm scripts (`apps/bot/scripts/go.sh`) set the right `CGO_*` paths
@@ -85,12 +86,14 @@ pnpm install
 cp .env.example .env
 $EDITOR .env          # fill in the keys from the table above
 
-# 3. Apply the database schema to your Supabase project (Supabase CLI).
+# 3. Schema.
+#    LOCAL DEV: skip this — `pnpm dev` boots a local Supabase stack and applies
+#    supabase/migrations automatically.
+#    HOSTED (shared/prod) project: link it once and push the migrations.
 #    Find <project-ref> in your project's URL or Project Settings → General.
 supabase login                       # one-time, opens a browser
 supabase link --project-ref <project-ref>
-supabase db push                     # applies supabase/migrations/*
-#    …or from package scripts: pnpm db:push
+supabase db push                     # applies supabase/migrations/*  (= pnpm db:push)
 
 # 4. (Re)generate type-safe DB code from db/queries — only needed if you change
 #    the schema (supabase/migrations) or queries; generated code is committed.
@@ -104,13 +107,33 @@ cd apps/bot && sqlc generate && cd -
 ## Run
 
 ```bash
-# Everything (bot + dashboard) in dev mode:
-pnpm dev          # = turbo run dev
+# Local dev: boots the Dockerized Supabase stack, points both apps at it,
+# then runs bot + dashboard. (Requires Docker running.)
+pnpm dev
+
+# Run only the apps against whatever your env points to (e.g. a hosted
+# Supabase) without starting the local stack:
+pnpm dev:apps
 
 # Or individually:
 pnpm --filter @kitacatat/bot run dev          # starts the Telegram bot
 pnpm --filter @kitacatat/dashboard run dev    # Vite dev server (http://localhost:5173)
 ```
+
+**What `pnpm dev` does:** runs `supabase start` (applies `supabase/migrations`
+to a local Postgres), then exports the local stack's connection details onto
+`DATABASE_URL` / `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` before launching
+Turbo. These exported vars override `.env`, so locally your `.env` only needs the
+non-Supabase secrets: `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`,
+`VITE_TELEGRAM_BOT_USERNAME`, and `TESSDATA_PREFIX`.
+
+Handy local URLs (from `supabase start`):
+
+- Studio (DB UI): <http://127.0.0.1:54323>
+- **Inbucket** (catches magic-link login emails locally): <http://127.0.0.1:54324>
+
+> Logging in locally won't send a real email — open Inbucket to click the magic
+> link. Stop the stack with `pnpm supabase:stop`.
 
 ### Login & linking
 
