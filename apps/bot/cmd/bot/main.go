@@ -41,10 +41,17 @@ func run() error {
 	defer st.Close()
 	log.Println("connected to database")
 
-	aiClient, err := ai.New(ctx, cfg.GeminiAPIKey)
+	aiClient, err := ai.New(ctx, ai.Settings{
+		Provider: cfg.AIProvider,
+		Model:    cfg.AIModel,
+		APIKey:   cfg.AIAPIKey,
+		BaseURL:  cfg.AIBaseURL,
+	})
 	if err != nil {
 		return err
 	}
+
+	log.Printf("AI provider=%q model=%q", cfg.AIProvider, cfg.AIModel)
 
 	ocrEngine := ocr.New(cfg.TessdataPrefix)
 

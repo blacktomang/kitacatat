@@ -26,7 +26,7 @@ apps/
       config/        #   typed config from env (.env via godotenv)
       domain/        #   Transaction, Category/Type enums, validation
       ocr/           #   gosseract (Tesseract) wrapper: bytes -> text
-      ai/            #   Gemini client: text -> []Transaction (JSON mode)
+      ai/            #   provider-agnostic Parser: text -> []Transaction (gemini | openai)
       store/         #   sqlc-generated queries + pgx pool wrapper
       telegram/      #   text / photo / image-document handlers
     db/queries/      #   sqlc query definitions
@@ -47,7 +47,7 @@ Put all of these in a `.env` file at the repo root (copy from `.env.example`):
 | Variable | Where to get it |
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Message **@BotFather** on Telegram → `/newbot` → copy the token. |
-| `GEMINI_API_KEY` | **Google AI Studio** → <https://aistudio.google.com/app/apikey>. |
+| `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` | The LLM provider (`gemini` or `openai`-compatible), model id, and key. See [Choosing an AI provider](#choosing-an-ai-provider). |
 | `DATABASE_URL` | **Supabase** → create a project → Project Settings → Database → *Connection string (URI)*. Include `?sslmode=require`. |
 | `VITE_SUPABASE_URL` | Supabase → Project Settings → API → *Project URL*. |
 | `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → *anon / public* key. |
@@ -203,13 +203,36 @@ RLS (all policies scoped with `TO authenticated`):
 - The bot writes via the direct Postgres connection, which bypasses RLS, so
   there are no write policies/grants for `anon`/`authenticated`.
 
+## Choosing an AI provider
+
+`internal/ai` is **provider-agnostic** — a `Parser` interface with two
+implementations, selected by env:
+
+- **`AI_PROVIDER=gemini`** (`gemini.go`) — Google's native SDK with a strict
+  response schema. Default model `gemini-2.5-flash`.
+- **`AI_PROVIDER=openai`** (`openai.go`) — any **OpenAI-compatible**
+  `/chat/completions` endpoint. Switch providers by just setting `AI_BASE_URL` +
+  `AI_MODEL` + `AI_API_KEY` — no code changes. Works with OpenAI, Groq,
+  OpenRouter, DeepSeek, Together, local Ollama, …
+
+This app's calls are tiny (a short message or OCR text in, small JSON out), so
+cost is fractions of a cent per message — pick for **reliability**, not price:
+
+| Want | Set |
+| --- | --- |
+| Cheapest reliable Gemini | `AI_PROVIDER=gemini`, `AI_MODEL=gemini-2.5-flash-lite` (enable billing to avoid free-tier "high demand" 503s) |
+| Free + fast | `AI_PROVIDER=openai`, `AI_BASE_URL=https://api.groq.com/openai/v1`, a Groq Llama model |
+| One key, many models | `AI_PROVIDER=openai`, `AI_BASE_URL=https://openrouter.ai/api/v1`, an OpenRouter model |
+
+> `gemini-2.0-flash` is retired (0 free quota) — don't use it.
+
 ## How parsing works
 
-`internal/ai` sends the text (plus any photo caption) to `gemini-2.0-flash` in
-**JSON mode** with a strict response schema. Gemini is told that amounts are
-Indonesian Rupiah (`Rp50.000`, `50.000`, `50rb`, `5jt`, `1.250.000`), to pick
-the **TOTAL** on a single receipt, to return multiple items only when the text
-clearly shows several transactions, to use a date from the text (else now), and
-to infer `type` and `category`. Every field is then **validated in Go**
-(`amount > 0`, `type`/`category` in the allowed sets) and invalid items are
-dropped before saving.
+`internal/ai` sends the text (plus any photo caption) to the configured model in
+**JSON mode**. The model is told that amounts are Indonesian Rupiah (`Rp50.000`,
+`50.000`, `50rb`, `5jt`, `1.250.000`), to pick the **TOTAL** on a single receipt,
+to return multiple items only when the text clearly shows several transactions,
+to use a date from the text (else now), and to infer `type` and `category`. The
+Gemini provider additionally enforces a strict response schema. Every field is
+then **validated in Go** (`amount > 0`, `type`/`category` in the allowed sets)
+and invalid items are dropped before saving.

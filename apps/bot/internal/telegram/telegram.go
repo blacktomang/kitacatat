@@ -25,14 +25,14 @@ const processTimeout = 60 * time.Second
 
 // Handler holds the dependencies the message handlers need.
 type Handler struct {
-	ai    *ai.Client
+	ai    ai.Parser
 	ocr   *ocr.Engine
 	store *store.Store
 }
 
 // New constructs a Handler.
-func New(aiClient *ai.Client, ocrEngine *ocr.Engine, st *store.Store) *Handler {
-	return &Handler{ai: aiClient, ocr: ocrEngine, store: st}
+func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store) *Handler {
+	return &Handler{ai: parser, ocr: ocrEngine, store: st}
 }
 
 // Register attaches handlers. /start is open (it handles account linking),

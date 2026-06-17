@@ -13,10 +13,23 @@ import (
 // Config is the typed, validated configuration for the bot.
 type Config struct {
 	TelegramBotToken string
-	GeminiAPIKey     string
-	DatabaseURL      string
-	TessdataPrefix   string
+
+	// AI provider selection (provider-agnostic).
+	AIProvider string // "gemini" (default) or "openai" (OpenAI-compatible)
+	AIModel    string
+	AIAPIKey   string
+	AIBaseURL  string // required for AIProvider="openai"
+
+	DatabaseURL    string
+	TessdataPrefix string
 }
+
+const (
+	defaultProvider = "gemini"
+	// DefaultGeminiModel has free-tier quota; gemini-2.0-flash does not on newer
+	// keys (and is being retired).
+	DefaultGeminiModel = "gemini-2.5-flash"
+)
 
 // Load reads configuration from the environment. It first attempts to load a
 // .env file (ignored if absent, so production env-vars work unchanged), then
@@ -29,11 +42,24 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 	_ = godotenv.Load("../../.env")
 
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("AI_PROVIDER")))
+	if provider == "" {
+		provider = defaultProvider
+	}
+
 	cfg := &Config{
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
-		GeminiAPIKey:     os.Getenv("GEMINI_API_KEY"),
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		TessdataPrefix:   os.Getenv("TESSDATA_PREFIX"),
+		AIProvider:       provider,
+		// AI_MODEL / AI_API_KEY are the canonical names; GEMINI_MODEL /
+		// GEMINI_API_KEY are accepted as back-compat fallbacks.
+		AIModel:        firstNonEmpty(os.Getenv("AI_MODEL"), os.Getenv("GEMINI_MODEL")),
+		AIAPIKey:       firstNonEmpty(os.Getenv("AI_API_KEY"), os.Getenv("GEMINI_API_KEY")),
+		AIBaseURL:      os.Getenv("AI_BASE_URL"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		TessdataPrefix: os.Getenv("TESSDATA_PREFIX"),
+	}
+	if cfg.AIProvider == "gemini" && cfg.AIModel == "" {
+		cfg.AIModel = DefaultGeminiModel
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -47,14 +73,35 @@ func (c *Config) validate() error {
 	if c.TelegramBotToken == "" {
 		missing = append(missing, "TELEGRAM_BOT_TOKEN")
 	}
-	if c.GeminiAPIKey == "" {
-		missing = append(missing, "GEMINI_API_KEY")
-	}
 	if c.DatabaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
+	}
+	if c.AIAPIKey == "" {
+		missing = append(missing, "AI_API_KEY (or GEMINI_API_KEY)")
+	}
+	if c.AIModel == "" {
+		missing = append(missing, "AI_MODEL")
+	}
+	if c.AIProvider == "openai" && c.AIBaseURL == "" {
+		missing = append(missing, "AI_BASE_URL (required when AI_PROVIDER=openai)")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))
 	}
+
+	switch c.AIProvider {
+	case "gemini", "openai":
+	default:
+		return fmt.Errorf("invalid AI_PROVIDER %q (want \"gemini\" or \"openai\")", c.AIProvider)
+	}
 	return nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

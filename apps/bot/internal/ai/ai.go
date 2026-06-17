@@ -1,5 +1,10 @@
 // Package ai turns free-form text (a chat message or OCR'd receipt) into
-// structured, validated transactions using Gemini in strict JSON mode.
+// structured, validated transactions using an LLM.
+//
+// It is provider-agnostic: the Parser interface is implemented by a native
+// Gemini client (gemini.go) and an OpenAI-compatible client (openai.go) that
+// works with OpenAI, Groq, OpenRouter, DeepSeek, Together, local Ollama, etc.
+// Pick one via Settings (wired from env in cmd/bot).
 package ai
 
 import (
@@ -9,28 +14,33 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/genai"
-
 	"github.com/kitacatat/bot/internal/domain"
 )
 
-const model = "gemini-2.0-flash"
-
-// Client wraps the Gemini client and the parsing logic.
-type Client struct {
-	genai *genai.Client
+// Parser turns text into structured transactions. Returned transactions have
+// every field except ownership populated; the caller validates and saves them.
+type Parser interface {
+	ParseTransactions(ctx context.Context, text, extraContext string) ([]domain.Transaction, error)
 }
 
-// New constructs an AI client backed by the Gemini Developer API.
-func New(ctx context.Context, apiKey string) (*Client, error) {
-	c, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ai: new genai client: %w", err)
+// Settings selects and configures the LLM provider.
+type Settings struct {
+	Provider string // "gemini" (default) or "openai" (OpenAI-compatible)
+	Model    string
+	APIKey   string
+	BaseURL  string // OpenAI-compatible providers only
+}
+
+// New builds a Parser for the configured provider.
+func New(ctx context.Context, s Settings) (Parser, error) {
+	switch strings.ToLower(strings.TrimSpace(s.Provider)) {
+	case "", "gemini":
+		return newGemini(ctx, s.APIKey, s.Model)
+	case "openai", "openai-compatible":
+		return newOpenAI(s.APIKey, s.BaseURL, s.Model)
+	default:
+		return nil, fmt.Errorf("ai: unknown provider %q (want \"gemini\" or \"openai\")", s.Provider)
 	}
-	return &Client{genai: c}, nil
 }
 
 // parsedTx mirrors the JSON the model returns for one transaction.
@@ -46,31 +56,44 @@ type parsedResult struct {
 	Transactions []parsedTx `json:"transactions"`
 }
 
-// ParseTransactions sends text (plus optional extra context, e.g. a photo
-// caption) to Gemini and returns the structured transactions it extracts.
-// Returned transactions have every field except UserID populated; the caller
-// is responsible for setting UserID, normalizing and validating before saving.
-func (c *Client) ParseTransactions(ctx context.Context, text, extraContext string) ([]domain.Transaction, error) {
-	text = strings.TrimSpace(text)
-	if text == "" && strings.TrimSpace(extraContext) == "" {
-		return nil, nil
+// buildPrompt is the shared, provider-independent instruction. It both states
+// the extraction rules and pins the exact JSON shape, so it works with plain
+// JSON-mode providers as well as schema-constrained ones.
+func buildPrompt(text, extraContext string) string {
+	var b strings.Builder
+	b.WriteString(`You extract personal-finance transactions from Indonesian text.
+
+Rules:
+- Amounts are Indonesian Rupiah. Normalize all of these to a plain integer number of rupiah:
+  "Rp50.000" -> 50000, "50.000" -> 50000, "50rb" -> 50000, "5jt" -> 5000000,
+  "1.250.000" -> 1250000, "Rp 1.250.000,00" -> 1250000 (drop cents).
+  In Indonesian, "." is a thousands separator and "," is the decimal separator.
+- For a single receipt, pick the TOTAL / GRAND TOTAL / TOTAL BAYAR (not subtotal, not change/kembalian, not cash given/tunai).
+- Return MULTIPLE items only if the text clearly describes several distinct transactions.
+- "type" is "income" for money received (gaji/salary, transfer masuk, refund) and "expense" for money spent.
+- "category" must be exactly one of: ` + strings.Join(categoryEnum(), ", ") + `.
+- "occurred_at": if the text contains a date/time, output it as ISO 8601 (e.g. 2025-01-31 or 2025-01-31T13:45:00). Otherwise output an empty string.
+- "description": a short label in the original language.
+
+Return ONLY a JSON object of this exact shape, with no markdown and no commentary:
+{"transactions":[{"amount":50000,"type":"expense","category":"food","description":"makan siang","occurred_at":""}]}
+If you cannot find any transaction, return {"transactions":[]}.
+
+`)
+	if strings.TrimSpace(extraContext) != "" {
+		b.WriteString("Extra context (photo caption): ")
+		b.WriteString(strings.TrimSpace(extraContext))
+		b.WriteString("\n\n")
 	}
+	b.WriteString("Text to parse:\n")
+	b.WriteString(text)
+	return b.String()
+}
 
-	prompt := buildPrompt(text, extraContext)
-
-	resp, err := c.genai.Models.GenerateContent(ctx, model,
-		genai.Text(prompt),
-		&genai.GenerateContentConfig{
-			ResponseMIMEType: "application/json",
-			ResponseSchema:   responseSchema(),
-			Temperature:      genai.Ptr[float32](0),
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("ai: generate content: %w", err)
-	}
-
-	raw := strings.TrimSpace(resp.Text())
+// decode parses the model's JSON response into domain transactions. It tolerates
+// a stray ```json code fence in case a provider ignores JSON mode.
+func decode(raw string) ([]domain.Transaction, error) {
+	raw = stripCodeFence(strings.TrimSpace(raw))
 	if raw == "" {
 		return nil, nil
 	}
@@ -94,71 +117,17 @@ func (c *Client) ParseTransactions(ctx context.Context, text, extraContext strin
 	return out, nil
 }
 
-// responseSchema is the strict JSON schema Gemini must conform to.
-func responseSchema() *genai.Schema {
-	return &genai.Schema{
-		Type: genai.TypeObject,
-		Properties: map[string]*genai.Schema{
-			"transactions": {
-				Type: genai.TypeArray,
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"amount": {
-							Type:        genai.TypeNumber,
-							Description: "Amount in Indonesian Rupiah as a plain number, no separators (e.g. 50000).",
-						},
-						"type": {
-							Type: genai.TypeString,
-							Enum: typeEnum(),
-						},
-						"category": {
-							Type: genai.TypeString,
-							Enum: categoryEnum(),
-						},
-						"description": {
-							Type:        genai.TypeString,
-							Description: "Short human description, e.g. 'makan siang' or 'gaji bulanan'.",
-						},
-						"occurred_at": {
-							Type:        genai.TypeString,
-							Description: "ISO 8601 date or datetime if a date is present in the text, otherwise empty string.",
-						},
-					},
-					Required: []string{"amount", "type", "category", "description", "occurred_at"},
-				},
-			},
-		},
-		Required: []string{"transactions"},
+func stripCodeFence(s string) string {
+	if !strings.HasPrefix(s, "```") {
+		return s
 	}
-}
-
-func buildPrompt(text, extraContext string) string {
-	var b strings.Builder
-	b.WriteString(`You extract personal-finance transactions from Indonesian text.
-
-Rules:
-- Amounts are Indonesian Rupiah. Normalize all of these to a plain integer number of rupiah:
-  "Rp50.000" -> 50000, "50.000" -> 50000, "50rb" -> 50000, "5jt" -> 5000000,
-  "1.250.000" -> 1250000, "Rp 1.250.000,00" -> 1250000 (drop cents).
-  In Indonesian, "." is a thousands separator and "," is the decimal separator.
-- For a single receipt, pick the TOTAL / GRAND TOTAL / TOTAL BAYAR (not subtotal, not change/kembalian, not cash given/tunai).
-- Return MULTIPLE items only if the text clearly describes several distinct transactions.
-- "type" is "income" for money received (gaji/salary, transfer masuk, refund) and "expense" for money spent.
-- "category" must be exactly one of: ` + strings.Join(categoryEnum(), ", ") + `.
-- "occurred_at": if the text contains a date/time, output it as ISO 8601 (e.g. 2025-01-31 or 2025-01-31T13:45:00). Otherwise output an empty string.
-- "description": a short label in the original language.
-- If you cannot find any transaction, return an empty "transactions" array.
-
-`)
-	if strings.TrimSpace(extraContext) != "" {
-		b.WriteString("Extra context (photo caption): ")
-		b.WriteString(strings.TrimSpace(extraContext))
-		b.WriteString("\n\n")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimPrefix(s, "json")
+	s = strings.TrimPrefix(s, "JSON")
+	if i := strings.LastIndex(s, "```"); i >= 0 {
+		s = s[:i]
 	}
-	b.WriteString("Text to parse:\n")
-	b.WriteString(text)
-	return b.String()
+	return strings.TrimSpace(s)
 }
 
 func categoryEnum() []string {
