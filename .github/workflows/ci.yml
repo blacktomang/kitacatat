@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # CGO deps for the Go bot (gosseract links Tesseract + Leptonica).
+      - name: Install Tesseract/Leptonica headers
+        run: sudo apt-get update && sudo apt-get install -y libtesseract-dev libleptonica-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: apps/bot/go.sum
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build (bot + dashboard)
+        run: pnpm build
+        env:
+          CGO_ENABLED: "1"
+          # Dummy values so the Vite build never trips on missing env.
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-dummy
+          VITE_TELEGRAM_BOT_USERNAME: ci_bot
+
+      - name: Lint
+        run: pnpm lint

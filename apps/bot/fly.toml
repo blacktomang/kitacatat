@@ -1,0 +1,16 @@
+# Fly.io config for the Telegram bot — an always-on worker (Telegram long-poll),
+# so there is no [http_service]. Runtime config is set with `fly secrets set`,
+# not here (see the Deploy section of the root README).
+#
+# Change `app` to a name that's unique on your Fly account (or run `fly launch`
+# once to create the app, then keep deploying via CI).
+app = "kitacatat-bot"
+primary_region = "sin" # Singapore — close to Indonesia
+
+[build]
+  dockerfile = "Dockerfile"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb" # headroom for Tesseract OCR

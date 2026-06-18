@@ -190,6 +190,46 @@ The image is multi-stage: it builds with the Tesseract/Leptonica dev headers
 (`CGO_ENABLED=1`) and ships a slim runtime that installs the Tesseract runtime
 plus `tesseract-ocr-ind` + `tesseract-ocr-eng` and sets `TESSDATA_PREFIX`.
 
+## Deployment (GitHub CI/CD)
+
+Three targets, each deployed from GitHub Actions in `.github/workflows/` (with
+path filters so only the changed app redeploys):
+
+| Piece | Host | Workflow |
+| --- | --- | --- |
+| Bot (Go, always-on) | **Fly.io** | `bot.yml` → `flyctl deploy` (`apps/bot/fly.toml`) |
+| Dashboard (Vite SPA) | **Cloudflare Pages** | `dashboard.yml` → build + `wrangler pages deploy` |
+| DB + Edge Function | **Supabase** | `supabase.yml` → `db push` + `functions deploy` |
+| PR checks | — | `ci.yml` → `pnpm build` + `pnpm lint` (installs Tesseract for the Go build) |
+
+> The bot is a long-poll worker, so it must run as an **always-on** container
+> (Fly machine) — not a scale-to-zero serverless function.
+
+### One-time setup
+
+1. **Fly:** `cd apps/bot && fly launch --no-deploy` (creates the app; keep the
+   generated `app` name or edit `fly.toml`). Set the bot's runtime secrets:
+   ```bash
+   fly secrets set TELEGRAM_BOT_TOKEN=… DATABASE_URL=… \
+     AI_PROVIDER=openai AI_BASE_URL=https://api.groq.com/openai/v1 \
+     AI_MODEL=llama-3.3-70b-versatile AI_API_KEY=… \
+     DASHBOARD_URL=https://<your-pages-domain>
+   ```
+2. **Cloudflare Pages:** create a project named `kitacatat`
+   (`wrangler pages project create kitacatat`).
+3. **Supabase:** have a hosted project (its `<project-ref>`).
+
+### GitHub repo secrets
+
+| Secret | Used by |
+| --- | --- |
+| `FLY_API_TOKEN` | bot.yml (`fly tokens create deploy`) |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | dashboard.yml |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_TELEGRAM_BOT_USERNAME` | dashboard.yml (build-time) |
+| `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD` | supabase.yml |
+
+After secrets are set, every push to `main` deploys the pieces it touched.
+
 ## Data model & Row Level Security
 
 The migrations in `supabase/migrations/` create:
