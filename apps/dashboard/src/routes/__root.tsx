@@ -3,6 +3,7 @@ import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
 import { Login } from "../components/Login";
 import { Loading } from "../components/ui";
 import { signOut, useAuth } from "../lib/auth";
+import { useProfile } from "../lib/hooks";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -23,18 +24,28 @@ function RootLayout() {
           </span>
           <NavLink to="/">Overview</NavLink>
           <NavLink to="/transactions">Transaksi</NavLink>
-          <NavLink to="/settings">Hubungkan Telegram</NavLink>
-          <button
-            onClick={() => signOut()}
-            className="ml-auto rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            Keluar
-          </button>
+          <Account />
         </nav>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6">
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+function Account() {
+  const { data: profile } = useProfile();
+  const name = profile?.display_name ?? "akun";
+  return (
+    <div className="ml-auto flex items-center gap-3">
+      <span className="hidden text-sm text-slate-500 sm:inline">{name}</span>
+      <button
+        onClick={() => signOut()}
+        className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+      >
+        Keluar
+      </button>
     </div>
   );
 }

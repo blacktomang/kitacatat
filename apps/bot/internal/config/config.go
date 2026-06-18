@@ -22,7 +22,13 @@ type Config struct {
 
 	DatabaseURL    string
 	TessdataPrefix string
+
+	// DashboardURL is the base URL of the dashboard, used to build the /login
+	// link the bot DMs to users.
+	DashboardURL string
 }
+
+const defaultDashboardURL = "http://localhost:5173"
 
 const (
 	defaultProvider = "gemini"
@@ -57,6 +63,7 @@ func Load() (*Config, error) {
 		AIBaseURL:      os.Getenv("AI_BASE_URL"),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		TessdataPrefix: os.Getenv("TESSDATA_PREFIX"),
+		DashboardURL:   firstNonEmpty(os.Getenv("DASHBOARD_URL"), defaultDashboardURL),
 	}
 	if cfg.AIProvider == "gemini" && cfg.AIModel == "" {
 		cfg.AIModel = DefaultGeminiModel

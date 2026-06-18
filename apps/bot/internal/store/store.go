@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,9 +16,6 @@ import (
 
 // ErrNotLinked is returned when no profile is linked to a given Telegram id.
 var ErrNotLinked = errors.New("telegram account not linked to any profile")
-
-// ErrInvalidCode is returned when a link code is unknown, expired, or used.
-var ErrInvalidCode = errors.New("invalid or expired link code")
 
 // Store wraps the pgx connection pool and the sqlc-generated Queries, exposing
 // a small domain-oriented API to the rest of the app.
@@ -63,6 +61,25 @@ func (s *Store) SaveTransaction(ctx context.Context, profileID uuid.UUID, t doma
 	})
 }
 
+// CreateLoginToken stores a short-lived, single-use dashboard login code for
+// the given Telegram user.
+func (s *Store) CreateLoginToken(ctx context.Context, token string, telegramID int64, username, displayName string, expiresAt time.Time) error {
+	return s.q.CreateLoginToken(ctx, CreateLoginTokenParams{
+		Token:            token,
+		TelegramID:       telegramID,
+		TelegramUsername: optText(username),
+		DisplayName:      optText(displayName),
+		ExpiresAt:        expiresAt,
+	})
+}
+
+func optText(s string) pgtype.Text {
+	if s == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: s, Valid: true}
+}
+
 // ProfileByTelegramID returns the profile linked to the given Telegram user id,
 // or ErrNotLinked if none exists.
 func (s *Store) ProfileByTelegramID(ctx context.Context, telegramID int64) (Profile, error) {
@@ -73,15 +90,3 @@ func (s *Store) ProfileByTelegramID(ctx context.Context, telegramID int64) (Prof
 	return p, err
 }
 
-// LinkTelegram consumes a one-time code and attaches telegramID to that code's
-// profile. Returns ErrInvalidCode if the code is unknown, expired, or used.
-func (s *Store) LinkTelegram(ctx context.Context, code string, telegramID int64) (Profile, error) {
-	p, err := s.q.LinkTelegram(ctx, LinkTelegramParams{
-		Code:       code,
-		TelegramID: pgtype.Int8{Int64: telegramID, Valid: true},
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Profile{}, ErrInvalidCode
-	}
-	return p, err
-}

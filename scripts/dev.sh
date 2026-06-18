@@ -31,11 +31,18 @@ eval "$(supabase status -o env \
 
 export DATABASE_URL VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY
 
+# Serve Edge Functions in the background — the /login flow needs telegram-login,
+# and `supabase start` does NOT serve functions on its own.
+echo "▶ Serving Edge Functions (logs: /tmp/kitacatat-functions.log)..."
+supabase functions serve --no-verify-jwt >/tmp/kitacatat-functions.log 2>&1 &
+FUNCTIONS_PID=$!
+trap 'kill "$FUNCTIONS_PID" 2>/dev/null' EXIT INT TERM
+
 echo "▶ Supabase ready."
 echo "    API:     $VITE_SUPABASE_URL"
 echo "    DB:      $DATABASE_URL"
 echo "    Studio:  http://127.0.0.1:54323"
-echo "    Inbucket (magic-link emails): http://127.0.0.1:54324"
 echo "▶ Starting bot + dashboard..."
 
-exec turbo run dev
+# Not exec'd, so the trap above can clean up the functions server on exit.
+turbo run dev

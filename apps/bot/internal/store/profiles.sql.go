@@ -12,7 +12,7 @@ import (
 )
 
 const getProfileByTelegramID = `-- name: GetProfileByTelegramID :one
-SELECT id, telegram_id, display_name, created_at FROM profiles
+SELECT id, telegram_id, display_name, created_at, telegram_username FROM profiles
 WHERE telegram_id = $1
 `
 
@@ -24,41 +24,7 @@ func (q *Queries) GetProfileByTelegramID(ctx context.Context, telegramID pgtype.
 		&i.TelegramID,
 		&i.DisplayName,
 		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const linkTelegram = `-- name: LinkTelegram :one
-WITH consumed AS (
-    UPDATE telegram_link_codes
-    SET consumed_at = now()
-    WHERE code = $1
-      AND consumed_at IS NULL
-      AND expires_at > now()
-    RETURNING profile_id
-)
-UPDATE profiles
-SET telegram_id = $2
-FROM consumed
-WHERE profiles.id = consumed.profile_id
-RETURNING profiles.id, profiles.telegram_id, profiles.display_name, profiles.created_at
-`
-
-type LinkTelegramParams struct {
-	Code       string      `json:"code"`
-	TelegramID pgtype.Int8 `json:"telegram_id"`
-}
-
-// Consume a valid, unexpired, unused code and attach the Telegram id to that
-// code's profile, all in one statement.
-func (q *Queries) LinkTelegram(ctx context.Context, arg LinkTelegramParams) (Profile, error) {
-	row := q.db.QueryRow(ctx, linkTelegram, arg.Code, arg.TelegramID)
-	var i Profile
-	err := row.Scan(
-		&i.ID,
-		&i.TelegramID,
-		&i.DisplayName,
-		&i.CreatedAt,
+		&i.TelegramUsername,
 	)
 	return i, err
 }

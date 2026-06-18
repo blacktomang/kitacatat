@@ -11,19 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Profile struct {
-	ID          uuid.UUID   `json:"id"`
-	TelegramID  pgtype.Int8 `json:"telegram_id"`
-	DisplayName pgtype.Text `json:"display_name"`
-	CreatedAt   time.Time   `json:"created_at"`
+type LoginToken struct {
+	Token            string             `json:"token"`
+	TelegramID       int64              `json:"telegram_id"`
+	TelegramUsername pgtype.Text        `json:"telegram_username"`
+	DisplayName      pgtype.Text        `json:"display_name"`
+	CreatedAt        time.Time          `json:"created_at"`
+	ExpiresAt        time.Time          `json:"expires_at"`
+	ConsumedAt       pgtype.Timestamptz `json:"consumed_at"`
 }
 
-type TelegramLinkCode struct {
-	Code       string             `json:"code"`
-	ProfileID  uuid.UUID          `json:"profile_id"`
-	CreatedAt  time.Time          `json:"created_at"`
-	ExpiresAt  time.Time          `json:"expires_at"`
-	ConsumedAt pgtype.Timestamptz `json:"consumed_at"`
+type Profile struct {
+	ID               uuid.UUID   `json:"id"`
+	TelegramID       pgtype.Int8 `json:"telegram_id"`
+	DisplayName      pgtype.Text `json:"display_name"`
+	CreatedAt        time.Time   `json:"created_at"`
+	TelegramUsername pgtype.Text `json:"telegram_username"`
 }
 
 type Transaction struct {

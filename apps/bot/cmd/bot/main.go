@@ -63,7 +63,7 @@ func run() error {
 		return err
 	}
 
-	telegram.New(aiClient, ocrEngine, st).Register(bot)
+	telegram.New(aiClient, ocrEngine, st, cfg.DashboardURL).Register(bot)
 
 	// Graceful shutdown on SIGINT/SIGTERM.
 	stop := make(chan os.Signal, 1)
