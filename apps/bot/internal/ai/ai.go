@@ -74,15 +74,22 @@ Rules:
   "Rp50.000" -> 50000, "50.000" -> 50000, "50rb" -> 50000, "5jt" -> 5000000,
   "1.250.000" -> 1250000, "Rp 1.250.000,00" -> 1250000 (drop cents).
   In Indonesian, "." is a thousands separator and "," is the decimal separator.
-- For a single receipt, pick the TOTAL / GRAND TOTAL / TOTAL BAYAR (not subtotal, not change/kembalian, not cash given/tunai).
-- Return MULTIPLE items only if the text clearly describes several distinct transactions.
+- If the text is a store receipt / invoice with itemized lines, return ONE transaction PER line item:
+  * "amount" = that line's price (quantity x unit price, e.g. "1 lusin x 36.000" -> 36000).
+  * "description" = the item name, including quantity/size if shown (e.g. "Indomie Goreng 1 lusin", "Fruit Tea Apple 500ml").
+  * infer "category" separately for each item.
+  Do NOT also return the grand total as its own transaction — that would double-count. Ignore subtotal, tax/PPN, total, change/kembalian, and cash tendered (bayar/tunai) lines.
+- If there are no itemized lines (e.g. a casual note like "makan siang 50rb", or a receipt that only shows a total), return a single transaction for that amount.
+- So: return MULTIPLE transactions for an itemized receipt or a note that clearly lists several entries; otherwise return a single transaction.
 - "type" is "income" for money received (gaji/salary, transfer masuk, refund) and "expense" for money spent.
-- "category" must be exactly one of: ` + strings.Join(categoryEnum(), ", ") + `.
-- "occurred_at": if the text contains a date/time, output it as ISO 8601 (e.g. 2025-01-31 or 2025-01-31T13:45:00). Otherwise output an empty string.
+- "category" must be exactly one of: `)
+	b.WriteString(strings.Join(categoryEnum(), ", "))
+	b.WriteString(`.
+- "occurred_at": if the text contains a date/time, output it as ISO 8601 (e.g. 2025-01-31 or 2025-01-31T13:45:00); for receipt line items use the receipt's date/time. Otherwise output an empty string.
 - "description": a short label in the original language.
 
 Return ONLY a JSON object of this exact shape, with no markdown and no commentary:
-{"transactions":[{"amount":50000,"type":"expense","category":"food","description":"makan siang","occurred_at":""}]}
+{"transactions":[{"amount":36000,"type":"expense","category":"food","description":"Indomie Goreng 1 lusin","occurred_at":"2023-08-02T08:46:36"},{"amount":7000,"type":"expense","category":"food","description":"Fruit Tea Apple 500ml","occurred_at":"2023-08-02T08:46:36"}]}
 If you cannot find any transaction, return {"transactions":[]}.
 
 `)

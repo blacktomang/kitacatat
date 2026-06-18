@@ -230,9 +230,11 @@ cost is fractions of a cent per message — pick for **reliability**, not price:
 
 `internal/ai` sends the text (plus any photo caption) to the configured model in
 **JSON mode**. The model is told that amounts are Indonesian Rupiah (`Rp50.000`,
-`50.000`, `50rb`, `5jt`, `1.250.000`), to pick the **TOTAL** on a single receipt,
-to return multiple items only when the text clearly shows several transactions,
-to use a date from the text (else now), and to infer `type` and `category`. The
+`50.000`, `50rb`, `5jt`, `1.250.000`); to extract **one transaction per line item**
+on an itemized receipt (each with its own AI-inferred `category`, skipping the
+grand total to avoid double-counting) or a single transaction for a plain
+note/total; to use a date from the text (else now), and to infer `type` and
+`category`. The
 Gemini provider additionally enforces a strict response schema. Every field is
 then **validated in Go** (`amount > 0`, `type`/`category` in the allowed sets)
 and invalid items are dropped before saving.
