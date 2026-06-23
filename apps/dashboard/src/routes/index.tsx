@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { ExpensePie, MonthlyBars } from "../components/charts";
 import { Card, ErrorState, Loading, SectionTitle } from "../components/ui";
@@ -14,40 +15,69 @@ export const Route = createFileRoute("/")({
   component: Overview,
 });
 
-function Overview() {
-  const { data, isLoading, error } = useTransactions();
+/** Value for an `<input type="month">`, e.g. "2026-06". */
+function monthValue(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
-  if (isLoading) return <Loading />;
-  if (error) return <ErrorState error={error} />;
+function parseMonthValue(v: string): Date {
+  const [year, month] = v.split("-").map(Number);
+  return new Date(year, month - 1, 1);
+}
+
+function Overview() {
+  const [month, setMonth] = useState(() => monthValue(new Date()));
+  const monthRef = parseMonthValue(month);
+  const { data, isLoading, error } = useTransactions(monthRef);
 
   const txs = data ?? [];
-  const totals = monthlyTotals(txs);
-  const byCategory = expenseByCategory(txs);
-  const series = monthlySeries(txs);
+  const totals = monthlyTotals(txs, monthRef);
+  const byCategory = expenseByCategory(txs, monthRef);
+  const series = monthlySeries(txs, 6, monthRef);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Ringkasan bulan ini</h1>
-        <p className="text-sm text-slate-500">Pemasukan & pengeluaran keluarga</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Ringkasan</h1>
+          <p className="text-sm text-slate-500">Pemasukan & pengeluaran keluarga</p>
+        </div>
+        <label className="flex flex-col text-xs font-medium text-slate-500">
+          Bulan
+          <input
+            type="month"
+            value={month}
+            max={monthValue(new Date())}
+            onChange={(e) => setMonth(e.target.value)}
+            className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+          />
+        </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Stat label="Pemasukan" value={totals.income} tone="income" />
-        <Stat label="Pengeluaran" value={totals.expense} tone="expense" />
-        <Stat label="Sisa" value={totals.net} tone={totals.net >= 0 ? "income" : "expense"} />
-      </div>
+      {isLoading ? (
+        <Loading />
+      ) : error ? (
+        <ErrorState error={error} />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Stat label="Pemasukan" value={totals.income} tone="income" />
+            <Stat label="Pengeluaran" value={totals.expense} tone="expense" />
+            <Stat label="Sisa" value={totals.net} tone={totals.net >= 0 ? "income" : "expense"} />
+          </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <SectionTitle>Pengeluaran per kategori</SectionTitle>
-          <ExpensePie data={byCategory} />
-        </Card>
-        <Card>
-          <SectionTitle>Tren 6 bulan</SectionTitle>
-          <MonthlyBars data={series} />
-        </Card>
-      </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card>
+              <SectionTitle>Pengeluaran per kategori</SectionTitle>
+              <ExpensePie data={byCategory} />
+            </Card>
+            <Card>
+              <SectionTitle>Tren 6 bulan</SectionTitle>
+              <MonthlyBars data={series} />
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

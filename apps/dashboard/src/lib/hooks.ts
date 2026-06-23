@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "./supabase";
+import { monthWindow } from "./analytics";
 import { useAuth } from "./auth";
 import type { Profile, Transaction } from "./types";
 
@@ -23,17 +24,21 @@ export function useProfile() {
 }
 
 /**
- * Fetches all transactions ordered newest-first. For a 2-person family the
- * volume is tiny, so we load everything once and derive the overview charts
- * client-side rather than running many aggregate queries.
+ * Fetches transactions newest-first, scoped to the 6-month window ending at
+ * `monthRef` (default current month). This bounds the fetch — the selected
+ * month powers the totals and category breakdown, while the full window feeds
+ * the 6-month trend — instead of loading every transaction ever recorded.
  */
-export function useTransactions() {
+export function useTransactions(monthRef: Date = new Date()) {
+  const { start, end } = monthWindow(monthRef, 6);
   return useQuery({
-    queryKey: ["transactions"],
+    queryKey: ["transactions", start, end],
     queryFn: async (): Promise<Transaction[]> => {
       const { data, error } = await supabase
         .from("transactions")
         .select("*")
+        .gte("occurred_at", start)
+        .lt("occurred_at", end)
         .order("occurred_at", { ascending: false });
 
       if (error) throw error;
