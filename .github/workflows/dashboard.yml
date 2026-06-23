@@ -32,10 +32,11 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_TELEGRAM_BOT_USERNAME: ${{ secrets.VITE_TELEGRAM_BOT_USERNAME }}
 
-      # Create the Pages project once (dashboard or `wrangler pages project create kitacatat`).
+      # Create the Pages project once: `wrangler pages project create kitacatat`.
+      # Run wrangler via `pnpm dlx` (temp dir) so it isn't installed into the
+      # pnpm workspace root — which is what breaks cloudflare/wrangler-action here.
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/dashboard/dist --project-name=kitacatat --branch=main
+        run: pnpm dlx wrangler@3 pages deploy apps/dashboard/dist --project-name=kitacatat --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
