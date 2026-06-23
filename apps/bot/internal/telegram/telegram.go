@@ -45,6 +45,7 @@ func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store, dashboardURL 
 func (h *Handler) Register(bot *tele.Bot) {
 	bot.Handle("/start", h.handleStart)
 	bot.Handle("/login", h.handleLogin)
+	bot.Handle("/recurring", h.handleRecurring, h.requireLinked)
 	bot.Handle(tele.OnText, h.handleText, h.requireLinked)
 	bot.Handle(tele.OnPhoto, h.handlePhoto, h.requireLinked)
 	bot.Handle(tele.OnDocument, h.handleDocument, h.requireLinked)

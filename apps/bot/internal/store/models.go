@@ -29,13 +29,30 @@ type Profile struct {
 	TelegramUsername pgtype.Text `json:"telegram_username"`
 }
 
+type RecurringRule struct {
+	ID           uuid.UUID   `json:"id"`
+	UserID       uuid.UUID   `json:"user_id"`
+	Amount       float64     `json:"amount"`
+	Type         string      `json:"type"`
+	Category     string      `json:"category"`
+	Description  pgtype.Text `json:"description"`
+	Frequency    string      `json:"frequency"`
+	DayOfMonth   pgtype.Int4 `json:"day_of_month"`
+	MonthOfYear  pgtype.Int4 `json:"month_of_year"`
+	DayOfWeek    pgtype.Int4 `json:"day_of_week"`
+	Active       bool        `json:"active"`
+	LastPostedOn pgtype.Date `json:"last_posted_on"`
+	CreatedAt    time.Time   `json:"created_at"`
+}
+
 type Transaction struct {
-	ID          uuid.UUID   `json:"id"`
-	UserID      uuid.UUID   `json:"user_id"`
-	Amount      float64     `json:"amount"`
-	Type        string      `json:"type"`
-	Category    string      `json:"category"`
-	Description pgtype.Text `json:"description"`
-	OccurredAt  time.Time   `json:"occurred_at"`
-	CreatedAt   time.Time   `json:"created_at"`
+	ID              uuid.UUID   `json:"id"`
+	UserID          uuid.UUID   `json:"user_id"`
+	Amount          float64     `json:"amount"`
+	Type            string      `json:"type"`
+	Category        string      `json:"category"`
+	Description     pgtype.Text `json:"description"`
+	OccurredAt      time.Time   `json:"occurred_at"`
+	CreatedAt       time.Time   `json:"created_at"`
+	RecurringRuleID pgtype.UUID `json:"recurring_rule_id"`
 }

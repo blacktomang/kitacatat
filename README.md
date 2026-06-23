@@ -170,6 +170,32 @@ Then DM your bot on Telegram:
   extra context, e.g. "belanja bulanan")
 - an image sent **as a file** (document) → handled the same way
 
+### Recurring income/expense
+
+Set up entries that should be recorded automatically (salary, rent, insurance,
+weekly allowance…). Frequencies: **daily**, **weekly**, **monthly**, **yearly**.
+Manage them from either side:
+
+- **Dashboard** → the **Langganan** tab: a frequency-aware form to
+  add/edit/toggle/delete rules.
+- **Bot** — a fixed, positional format parsed entirely in Go (no AI). Amounts
+  accept plain rupiah and shorthand (`2jt`, `1.5jt`, `50rb`, `100k`):
+
+  ```
+  /recurring add <income|expense> <amount> <category> <freq> <when> [description]
+    monthly <day 1-31>     e.g.  /recurring add income 5jt salary monthly 25 gaji
+    yearly  <DD/MM>        e.g.  /recurring add expense 1.5jt bills yearly 25/12 asuransi
+    weekly  <mon..sun>     e.g.  /recurring add expense 100rb food weekly senin jajan
+    daily   (no date)      e.g.  /recurring add expense 50rb food daily kopi
+  ```
+
+  `/recurring` lists your rules; `/recurring del <n>` removes one.
+
+A daily Postgres job (`pg_cron` → `public.post_due_recurring()`) inserts a real
+transaction for each active rule's most recent due occurrence, so recurring
+entries flow through the same history and charts as everything else (badged with
+🔁). Re-running the job is idempotent — each occurrence posts at most once.
+
 ## Build
 
 ```bash
@@ -251,7 +277,14 @@ The migrations in `supabase/migrations/` create:
   `auth.users`), with a unique `telegram_id` + `telegram_username`. These are set
   by the `telegram-login` Edge Function when the user signs in with Telegram.
 - **`transactions.user_id`** is a `uuid` FK to `profiles(id)` — the bot looks up
-  the profile by `telegram_id` and stamps each transaction with it.
+  the profile by `telegram_id` and stamps each transaction with it. Auto-posted
+  rows carry a `recurring_rule_id` back-reference (nullable, `ON DELETE SET
+  NULL`).
+- **`recurring_rules`** — daily/weekly/monthly/yearly income/expense templates
+  (a `frequency` plus the matching schedule columns, enforced by a check
+  constraint). `public.post_due_recurring()` (a `SECURITY DEFINER` function run
+  daily by `pg_cron`) materializes each rule's most recent due occurrence into
+  `transactions`.
 
 RLS (all policies scoped with `TO authenticated`):
 
@@ -261,8 +294,12 @@ RLS (all policies scoped with `TO authenticated`):
   (true)`) — a shared household view. To isolate per user instead, change the
   policy to `USING ((select auth.uid()) = user_id)` (noted inline in the
   migration).
+- `recurring_rules`: family **read-all**, but insert/update/delete are
+  **owner-only** (`auth.uid() = user_id`) — this is the dashboard's only
+  authenticated write path. The posting function runs as `SECURITY DEFINER` so
+  it can insert into `transactions` despite there being no write grant there.
 - The bot writes via the direct Postgres connection, which bypasses RLS, so
-  there are no write policies/grants for `anon`/`authenticated`.
+  there are no `transactions` write policies/grants for `anon`/`authenticated`.
 
 ## Choosing an AI provider
 

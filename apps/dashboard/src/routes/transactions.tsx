@@ -152,7 +152,14 @@ function Row({ t }: { t: Transaction }) {
   return (
     <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
       <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{formatDate(t.occurred_at)}</td>
-      <td className="px-4 py-2.5">{t.description || <span className="text-slate-400">—</span>}</td>
+      <td className="px-4 py-2.5">
+        {t.recurring_rule_id ? (
+          <span title="Langganan bulanan" className="mr-1 text-slate-400">
+            🔁
+          </span>
+        ) : null}
+        {t.description || <span className="text-slate-400">—</span>}
+      </td>
       <td className="px-4 py-2.5">
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
           {t.category}

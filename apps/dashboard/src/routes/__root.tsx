@@ -24,6 +24,7 @@ function RootLayout() {
           </span>
           <NavLink to="/">Overview</NavLink>
           <NavLink to="/transactions">Transaksi</NavLink>
+          <NavLink to="/recurring">Langganan</NavLink>
           <Account />
         </nav>
       </header>

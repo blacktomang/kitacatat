@@ -16,7 +16,7 @@ import (
 const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transactions (user_id, amount, type, category, description, occurred_at)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, amount, type, category, description, occurred_at, created_at
+RETURNING id, user_id, amount, type, category, description, occurred_at, created_at, recurring_rule_id
 `
 
 type CreateTransactionParams struct {
@@ -47,12 +47,13 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.Description,
 		&i.OccurredAt,
 		&i.CreatedAt,
+		&i.RecurringRuleID,
 	)
 	return i, err
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, user_id, amount, type, category, description, occurred_at, created_at FROM transactions
+SELECT id, user_id, amount, type, category, description, occurred_at, created_at, recurring_rule_id FROM transactions
 ORDER BY occurred_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -80,6 +81,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Description,
 			&i.OccurredAt,
 			&i.CreatedAt,
+			&i.RecurringRuleID,
 		); err != nil {
 			return nil, err
 		}
@@ -92,7 +94,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByUser = `-- name: ListTransactionsByUser :many
-SELECT id, user_id, amount, type, category, description, occurred_at, created_at FROM transactions
+SELECT id, user_id, amount, type, category, description, occurred_at, created_at, recurring_rule_id FROM transactions
 WHERE user_id = $1
 ORDER BY occurred_at DESC
 LIMIT $2 OFFSET $3
@@ -122,6 +124,7 @@ func (q *Queries) ListTransactionsByUser(ctx context.Context, arg ListTransactio
 			&i.Description,
 			&i.OccurredAt,
 			&i.CreatedAt,
+			&i.RecurringRuleID,
 		); err != nil {
 			return nil, err
 		}

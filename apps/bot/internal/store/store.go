@@ -61,6 +61,41 @@ func (s *Store) SaveTransaction(ctx context.Context, profileID uuid.UUID, t doma
 	})
 }
 
+// SaveRecurringRule persists a validated recurring rule owned by the given
+// profile. Schedule columns are populated according to the rule's frequency;
+// the rest are left NULL to satisfy the DB's schedule check constraint.
+func (s *Store) SaveRecurringRule(ctx context.Context, profileID uuid.UUID, r domain.RecurringRule) (RecurringRule, error) {
+	params := CreateRecurringRuleParams{
+		UserID:      profileID,
+		Amount:      r.Amount,
+		Type:        string(r.Type),
+		Category:    string(r.Category),
+		Description: optText(r.Description),
+		Frequency:   string(r.Frequency),
+	}
+	switch r.Frequency {
+	case domain.FreqWeekly:
+		params.DayOfWeek = pgtype.Int4{Int32: int32(r.DayOfWeek), Valid: true}
+	case domain.FreqMonthly:
+		params.DayOfMonth = pgtype.Int4{Int32: int32(r.DayOfMonth), Valid: true}
+	case domain.FreqYearly:
+		params.DayOfMonth = pgtype.Int4{Int32: int32(r.DayOfMonth), Valid: true}
+		params.MonthOfYear = pgtype.Int4{Int32: int32(r.MonthOfYear), Valid: true}
+	}
+	return s.q.CreateRecurringRule(ctx, params)
+}
+
+// RecurringRulesByUser lists a profile's recurring rules, oldest first.
+func (s *Store) RecurringRulesByUser(ctx context.Context, profileID uuid.UUID) ([]RecurringRule, error) {
+	return s.q.ListRecurringRulesByUser(ctx, profileID)
+}
+
+// DeleteRecurringRule removes a rule by id, scoped to its owner so a user can
+// only delete their own. Reports how many rows were deleted (0 if not found).
+func (s *Store) DeleteRecurringRule(ctx context.Context, id, profileID uuid.UUID) (int64, error) {
+	return s.q.DeleteRecurringRule(ctx, DeleteRecurringRuleParams{ID: id, UserID: profileID})
+}
+
 // CreateLoginToken stores a short-lived, single-use dashboard login code for
 // the given Telegram user.
 func (s *Store) CreateLoginToken(ctx context.Context, token string, telegramID int64, username, displayName string, expiresAt time.Time) error {
