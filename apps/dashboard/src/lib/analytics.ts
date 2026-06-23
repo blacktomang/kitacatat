@@ -10,6 +10,17 @@ function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * Inclusive start / exclusive end ISO timestamps for the `count`-month window
+ * ending at `ref`'s month. Used to scope the overview fetch to a bounded range
+ * instead of loading every transaction ever recorded.
+ */
+export function monthWindow(ref: Date, count = 6): { start: string; end: string } {
+  const start = new Date(ref.getFullYear(), ref.getMonth() - (count - 1), 1);
+  const end = new Date(ref.getFullYear(), ref.getMonth() + 1, 1);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 /** Income/expense/net totals for the calendar month of `ref` (default now). */
 export function monthlyTotals(txs: Transaction[], ref = new Date()): Totals {
   const key = monthKey(ref);
