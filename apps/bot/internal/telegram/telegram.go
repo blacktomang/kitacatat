@@ -5,6 +5,8 @@ package telegram
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,14 +27,15 @@ const processTimeout = 60 * time.Second
 
 // Handler holds the dependencies the message handlers need.
 type Handler struct {
-	ai    ai.Parser
-	ocr   *ocr.Engine
-	store *store.Store
+	ai           ai.Parser
+	ocr          *ocr.Engine
+	store        *store.Store
+	dashboardURL string
 }
 
 // New constructs a Handler.
-func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store) *Handler {
-	return &Handler{ai: parser, ocr: ocrEngine, store: st}
+func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store, dashboardURL string) *Handler {
+	return &Handler{ai: parser, ocr: ocrEngine, store: st, dashboardURL: dashboardURL}
 }
 
 // Register attaches handlers. /start is open (it handles account linking),
@@ -41,6 +44,7 @@ func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store) *Handler {
 // allowlist.
 func (h *Handler) Register(bot *tele.Bot) {
 	bot.Handle("/start", h.handleStart)
+	bot.Handle("/login", h.handleLogin)
 	bot.Handle(tele.OnText, h.handleText, h.requireLinked)
 	bot.Handle(tele.OnPhoto, h.handlePhoto, h.requireLinked)
 	bot.Handle(tele.OnDocument, h.handleDocument, h.requireLinked)
@@ -72,8 +76,9 @@ func (h *Handler) requireLinked(next tele.HandlerFunc) tele.HandlerFunc {
 	}
 }
 
-// handleStart handles both a plain /start and the deep-link /start <code> used
-// to link a Telegram account to a dashboard profile.
+// handleStart greets the user. Account access is established by logging into
+// the dashboard with "Log in with Telegram"; the bot itself no longer links
+// accounts, it only checks whether the sender's Telegram id is already linked.
 func (h *Handler) handleStart(c tele.Context) error {
 	sender := c.Sender()
 	if sender == nil {
@@ -82,33 +87,60 @@ func (h *Handler) handleStart(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	code := strings.TrimSpace(c.Message().Payload)
-	if code == "" {
-		if _, err := h.store.ProfileByTelegramID(ctx, sender.ID); err == nil {
-			return c.Send("Halo lagi! Akunmu sudah terhubung. Kirim catatan keuangan " +
-				"(mis. \"makan siang 50rb\") atau foto struk. 💸")
-		}
-		return c.Send("Halo! Untuk mulai: buka dashboard, login, lalu tekan " +
-			"\"Hubungkan Telegram\". Kamu akan diarahkan ke chat ini dengan kode tautan.")
+	if _, err := h.store.ProfileByTelegramID(ctx, sender.ID); err == nil {
+		return c.Send("Halo lagi! Akunmu sudah terhubung. Kirim catatan keuangan " +
+			"(mis. \"makan siang 50rb\") atau foto struk. 💸")
+	}
+	return c.Send("Halo! Ketik /login untuk mendapatkan tautan masuk ke dashboard. " +
+		"Setelah masuk, kamu bisa langsung mencatat dari sini. 🔐")
+}
+
+// loginTokenTTL is how long a /login link stays valid.
+const loginTokenTTL = 5 * time.Minute
+
+// handleLogin issues a one-time dashboard login link. Telegram has already
+// authenticated the sender, so the bot can vouch for them: it stores a
+// short-lived token and DMs a link the dashboard exchanges for a session.
+func (h *Handler) handleLogin(c tele.Context) error {
+	sender := c.Sender()
+	if sender == nil {
+		return nil
 	}
 
-	profile, err := h.store.LinkTelegram(ctx, code, sender.ID)
-	if errors.Is(err, store.ErrInvalidCode) {
-		return c.Send("Kode tautan tidak valid atau sudah kadaluarsa. Buat kode baru di dashboard ya.")
-	}
+	token, err := randomToken()
 	if err != nil {
-		// Most likely a unique-constraint violation: this Telegram account is
-		// already linked to a different profile.
-		log.Printf("link telegram: %v", err)
-		return c.Send("Gagal menghubungkan akun. Mungkin Telegram ini sudah tertaut ke akun lain.")
+		log.Printf("generate login token: %v", err)
+		return c.Send("Maaf, gagal membuat tautan login. Coba lagi ya.")
 	}
 
-	name := profile.DisplayName.String
-	if name == "" {
-		name = "kamu"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := h.store.CreateLoginToken(ctx, token, sender.ID, sender.Username, displayNameFor(sender), time.Now().Add(loginTokenTTL)); err != nil {
+		log.Printf("create login token: %v", err)
+		return c.Send("Maaf, gagal membuat tautan login. Coba lagi ya.")
 	}
-	return c.Send(fmt.Sprintf("✅ Berhasil terhubung sebagai %s! "+
-		"Sekarang kirim catatan keuangan atau foto struk. 💸", name))
+
+	link := fmt.Sprintf("%s/?token=%s", strings.TrimRight(h.dashboardURL, "/"), token)
+	return c.Send("🔐 Tautan masuk dashboard (berlaku 5 menit, sekali pakai):\n" + link)
+}
+
+func displayNameFor(u *tele.User) string {
+	if u.Username != "" {
+		return "@" + u.Username
+	}
+	if name := strings.TrimSpace(u.FirstName + " " + u.LastName); name != "" {
+		return name
+	}
+	return fmt.Sprintf("tg_%d", u.ID)
+}
+
+func randomToken() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // handleText handles casual text messages like "makan siang 50rb".

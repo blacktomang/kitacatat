@@ -34,6 +34,8 @@ apps/
 supabase/
   config.toml        # Supabase CLI project config
   migrations/        # SQL migrations (schema source of truth, applied via `supabase db push`)
+  functions/
+    telegram-login/  # Edge Function: verifies Telegram login → Supabase session
 packages/
   config/            # shared tsconfig + eslint for the JS side
 turbo.json           # build / dev / lint pipeline
@@ -50,14 +52,14 @@ Put all of these in a `.env` file at the repo root (copy from `.env.example`):
 | `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` | The LLM provider (`gemini` or `openai`-compatible), model id, and key. See [Choosing an AI provider](#choosing-an-ai-provider). |
 | `DATABASE_URL` | **Supabase** → create a project → Project Settings → Database → *Connection string (URI)*. Include `?sslmode=require`. |
 | `VITE_SUPABASE_URL` | Supabase → Project Settings → API → *Project URL*. |
-| `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → *anon / public* key. |
-| `VITE_TELEGRAM_BOT_USERNAME` | Your bot's username (without `@`) from BotFather — used to build the Telegram deep link on the linking page. |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → **API Keys** → *publishable* key (`sb_publishable_…`). Replaces the legacy anon key. |
+| `VITE_TELEGRAM_BOT_USERNAME` | Your bot's username (without `@`) from BotFather — the login screen links to it so you can DM `/login`. |
 | `TESSDATA_PREFIX` | Path to Tesseract trained data (see install step). macOS Homebrew: `/opt/homebrew/share/tessdata`. |
 
-> **No hardcoded user IDs.** Access is granted by linking a Telegram account to
-> a logged-in dashboard profile (see [Login & linking](#login--linking)). The
+> **No hardcoded user IDs.** Access is granted by signing into the dashboard
+> with Telegram (see [Login (Sign in with Telegram)](#login-sign-in-with-telegram)). The
 > bot writes to Postgres directly with `DATABASE_URL` (bypasses RLS); the
-> dashboard reads with the anon key gated by Row Level Security.
+> dashboard reads with the publishable key gated by Row Level Security.
 
 ## Prerequisites
 
@@ -122,35 +124,43 @@ pnpm --filter @kitacatat/dashboard run dev    # Vite dev server (http://localhos
 
 **What `pnpm dev` does:** runs `supabase start` (applies `supabase/migrations`
 to a local Postgres), then exports the local stack's connection details onto
-`DATABASE_URL` / `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` before launching
+`DATABASE_URL` / `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` before launching
 Turbo. These exported vars override `.env`, so locally your `.env` only needs the
 non-Supabase secrets: `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`,
 `VITE_TELEGRAM_BOT_USERNAME`, and `TESSDATA_PREFIX`.
 
-Handy local URLs (from `supabase start`):
+Handy local URLs (from `supabase start`): Studio (DB UI) at
+<http://127.0.0.1:54323>. Stop the stack with `pnpm supabase:stop`.
 
-- Studio (DB UI): <http://127.0.0.1:54323>
-- **Inbucket** (catches magic-link login emails locally): <http://127.0.0.1:54324>
+### Login (Sign in with Telegram)
 
-> Logging in locally won't send a real email — open Inbucket to click the magic
-> link. Stop the stack with `pnpm supabase:stop`.
+Auth is **Telegram-native** via a bot-issued login code — no email, no widget,
+no HTTPS domain required (so it works on `localhost`):
 
-### Login & linking
+1. You DM **`/login`** to the bot.
+2. The bot (Telegram has already authenticated you) writes a short-lived,
+   single-use token to `login_tokens` and replies with a dashboard link
+   (`$DASHBOARD_URL/?token=…`).
+3. Opening the link makes the dashboard POST the token to the
+   `telegram-login` Edge Function, which validates it, provisions a Supabase
+   user whose profile carries the `telegram_id`, and returns a one-time OTP the
+   dashboard exchanges for a session.
 
-Before the bot will record anything, each family member must connect their
-Telegram account once:
+Logging in *is* the registration, and it's what authorizes the bot — no
+`ALLOWED_USER_IDS`. Registration is capped at **`MAX_PROFILES` (default 2)**
+accounts; returning users always get in. The Supabase session (access + refresh)
+is then managed by Supabase as usual.
 
-1. Open the dashboard → enter your email → click the **magic link** Supabase
-   emails you (passwordless login).
-2. Go to **Hubungkan Telegram** → **Buat kode tautan** (creates a single-use,
-   15-minute code via a `SECURITY DEFINER` RPC).
-3. Click **Buka di Telegram** — this sends `/start <code>` to the bot, which
-   links your Telegram id to your profile. Back on the page, click **segarkan
-   status** to confirm.
+One-time setup: deploy the Edge Function (no bot domain needed):
 
-After that, the bot serves you (and rejects anyone unlinked). In Supabase, add
-both family members' emails under **Authentication → Users** (or leave signups
-on, then turn them off).
+```bash
+supabase functions deploy telegram-login   # config sets verify_jwt=false
+# optional: change the account cap (default 2)
+# supabase secrets set MAX_PROFILES=2
+```
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically. Set
+`DASHBOARD_URL` for the bot (defaults to `http://localhost:5173`) so the login
+link points at the right place.
 
 Then DM your bot on Telegram:
 
@@ -180,15 +190,66 @@ The image is multi-stage: it builds with the Tesseract/Leptonica dev headers
 (`CGO_ENABLED=1`) and ships a slim runtime that installs the Tesseract runtime
 plus `tesseract-ocr-ind` + `tesseract-ocr-eng` and sets `TESSDATA_PREFIX`.
 
+## Deployment (GitHub CI/CD)
+
+Three targets, each deployed from GitHub Actions in `.github/workflows/` (with
+path filters so only the changed app redeploys):
+
+| Piece | Host | Workflow |
+| --- | --- | --- |
+| Bot (Go, always-on) | **Your VPS** (Docker) | `bot.yml` → build → push to GHCR → SSH pull & restart |
+| Dashboard (Vite SPA) | **Cloudflare Pages** | `dashboard.yml` → build + `wrangler pages deploy` |
+| DB + Edge Function | **Supabase** | `supabase.yml` → `db push` + `functions deploy` |
+| PR checks | — | `ci.yml` → `pnpm build` + `pnpm lint` (installs Tesseract for the Go build) |
+
+> The bot long-polls Telegram (outbound only), so the VPS needs **no domain, no
+> open ports, no HTTPS** — just Docker and outbound internet.
+
+### One-time setup
+
+1. **VPS (Debian/Ubuntu):** install Docker, then create the runtime env file the
+   container reads (secrets stay on the box, not in GitHub):
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   sudo mkdir -p /opt/kitacatat
+   sudo tee /opt/kitacatat/.env >/dev/null <<'EOF'
+   TELEGRAM_BOT_TOKEN=…
+   DATABASE_URL=…                 # your Supabase connection string
+   DASHBOARD_URL=https://<your-pages-domain>
+   AI_PROVIDER=openai
+   AI_BASE_URL=https://api.groq.com/openai/v1
+   AI_MODEL=llama-3.3-70b-versatile
+   AI_API_KEY=…
+   EOF
+   ```
+   (`TESSDATA_PREFIX` is already set inside the image.) Add the public key whose
+   private half you'll put in `SSH_KEY` to `~/.ssh/authorized_keys`.
+2. **Cloudflare Pages:** create a project named `kitacatat`
+   (`wrangler pages project create kitacatat`).
+3. **Supabase:** have a hosted project (its `<project-ref>`).
+
+### GitHub repo secrets
+
+| Secret | Used by |
+| --- | --- |
+| `SSH_HOST`, `SSH_USER`, `SSH_KEY` (private key), `SSH_PORT` (optional) | bot.yml (deploy over SSH) |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | dashboard.yml |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_TELEGRAM_BOT_USERNAME` | dashboard.yml (build-time) |
+| `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD` | supabase.yml |
+
+> The image is pushed to **GHCR** using the built-in `GITHUB_TOKEN` (no secret
+> needed). The bot's runtime env lives in `/opt/kitacatat/.env` **on the VPS**,
+> not in GitHub.
+
+After secrets are set, every push to `main` deploys the pieces it touched.
+
 ## Data model & Row Level Security
 
-The baseline migration in `supabase/migrations/` creates:
+The migrations in `supabase/migrations/` create:
 
 - **`profiles`** — one row per Supabase Auth user (auto-created by a trigger on
-  `auth.users`), with a unique `telegram_id` filled in at link time.
-- **`telegram_link_codes`** — single-use, 15-minute codes. Created only via the
-  `request_telegram_link_code()` RPC (`SECURITY DEFINER`, locked to the
-  `authenticated` role); consumed by the bot.
+  `auth.users`), with a unique `telegram_id` + `telegram_username`. These are set
+  by the `telegram-login` Edge Function when the user signs in with Telegram.
 - **`transactions.user_id`** is a `uuid` FK to `profiles(id)` — the bot looks up
   the profile by `telegram_id` and stamps each transaction with it.
 
@@ -230,9 +291,11 @@ cost is fractions of a cent per message — pick for **reliability**, not price:
 
 `internal/ai` sends the text (plus any photo caption) to the configured model in
 **JSON mode**. The model is told that amounts are Indonesian Rupiah (`Rp50.000`,
-`50.000`, `50rb`, `5jt`, `1.250.000`), to pick the **TOTAL** on a single receipt,
-to return multiple items only when the text clearly shows several transactions,
-to use a date from the text (else now), and to infer `type` and `category`. The
+`50.000`, `50rb`, `5jt`, `1.250.000`); to extract **one transaction per line item**
+on an itemized receipt (each with its own AI-inferred `category`, skipping the
+grand total to avoid double-counting) or a single transaction for a plain
+note/total; to use a date from the text (else now), and to infer `type` and
+`category`. The
 Gemini provider additionally enforces a strict response schema. Every field is
 then **validated in Go** (`amount > 0`, `type`/`category` in the allowed sets)
 and invalid items are dropped before saving.

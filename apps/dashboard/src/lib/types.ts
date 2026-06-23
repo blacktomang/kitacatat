@@ -16,6 +16,7 @@ export type Category = (typeof CATEGORIES)[number];
 export interface Profile {
   id: string;
   telegram_id: number | null;
+  telegram_username: string | null;
   display_name: string | null;
   created_at: string;
 }

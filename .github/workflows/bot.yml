@@ -1,0 +1,64 @@
+name: Deploy bot (VPS)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/bot/**"
+      - ".github/workflows/bot.yml"
+  workflow_dispatch:
+
+# Don't let two deploys race.
+concurrency: deploy-bot
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/kitacatat-bot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build the bot image (Dockerfile installs Tesseract/Leptonica for CGO)
+      # and push it to GitHub Container Registry.
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/bot
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Pull & restart on the VPS over SSH. The bot long-polls Telegram, so the
+      # box needs only outbound internet — no domain, no open ports. Runtime
+      # secrets live in /opt/kitacatat/.env on the VPS, not in GitHub.
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }} # optional; defaults to 22 if blank
+          envs: IMAGE,GHCR_USER,GHCR_TOKEN
+          script: |
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker pull "$IMAGE:latest"
+            docker rm -f kitacatat-bot 2>/dev/null || true
+            docker run -d --name kitacatat-bot --restart unless-stopped \
+              --env-file /opt/kitacatat/.env "$IMAGE:latest"
+            docker image prune -f
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
