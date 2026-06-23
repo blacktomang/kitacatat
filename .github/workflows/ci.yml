@@ -35,7 +35,7 @@ jobs:
           CGO_ENABLED: "1"
           # Dummy values so the Vite build never trips on missing env.
           VITE_SUPABASE_URL: https://example.supabase.co
-          VITE_SUPABASE_ANON_KEY: ci-dummy
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-dummy
           VITE_TELEGRAM_BOT_USERNAME: ci_bot
 
       - name: Lint

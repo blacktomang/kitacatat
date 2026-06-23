@@ -19,17 +19,20 @@ echo "▶ Starting local Supabase (first run pulls images — can take a minute)
 # Idempotent: starts the stack if needed and applies supabase/migrations.
 supabase start
 
-# Map the local stack's connection details onto the app env var names.
+# Map the local stack's connection details onto the app env var names. The
+# local stack only exposes the legacy anon key, so we feed that into the app's
+# publishable-key var (interchangeable locally — both are the low-privilege,
+# RLS-gated client key).
 eval "$(supabase status -o env \
   --override-name api.url=VITE_SUPABASE_URL \
-  --override-name auth.anon_key=VITE_SUPABASE_ANON_KEY \
+  --override-name auth.anon_key=VITE_SUPABASE_PUBLISHABLE_KEY \
   --override-name db.url=DATABASE_URL)"
 
 : "${DATABASE_URL:?could not read local DB url from 'supabase status'}"
 : "${VITE_SUPABASE_URL:?could not read local API url from 'supabase status'}"
-: "${VITE_SUPABASE_ANON_KEY:?could not read local anon key from 'supabase status'}"
+: "${VITE_SUPABASE_PUBLISHABLE_KEY:?could not read local anon key from 'supabase status'}"
 
-export DATABASE_URL VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY
+export DATABASE_URL VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY
 
 # Serve Edge Functions in the background — the /login flow needs telegram-login,
 # and `supabase start` does NOT serve functions on its own.

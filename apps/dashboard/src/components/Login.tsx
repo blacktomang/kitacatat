@@ -5,7 +5,7 @@ import { Card } from "./ui";
 
 const BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME;
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 export function Login() {
   const [working, setWorking] = useState(false);
@@ -26,8 +26,8 @@ export function Login() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            apikey: ANON_KEY,
-            Authorization: `Bearer ${ANON_KEY}`,
+            apikey: PUBLISHABLE_KEY,
+            Authorization: `Bearer ${PUBLISHABLE_KEY}`,
           },
           body: JSON.stringify({ token }),
         });

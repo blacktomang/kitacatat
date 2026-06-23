@@ -52,14 +52,14 @@ Put all of these in a `.env` file at the repo root (copy from `.env.example`):
 | `AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` | The LLM provider (`gemini` or `openai`-compatible), model id, and key. See [Choosing an AI provider](#choosing-an-ai-provider). |
 | `DATABASE_URL` | **Supabase** → create a project → Project Settings → Database → *Connection string (URI)*. Include `?sslmode=require`. |
 | `VITE_SUPABASE_URL` | Supabase → Project Settings → API → *Project URL*. |
-| `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → *anon / public* key. |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → **API Keys** → *publishable* key (`sb_publishable_…`). Replaces the legacy anon key. |
 | `VITE_TELEGRAM_BOT_USERNAME` | Your bot's username (without `@`) from BotFather — the login screen links to it so you can DM `/login`. |
 | `TESSDATA_PREFIX` | Path to Tesseract trained data (see install step). macOS Homebrew: `/opt/homebrew/share/tessdata`. |
 
 > **No hardcoded user IDs.** Access is granted by signing into the dashboard
 > with Telegram (see [Login (Sign in with Telegram)](#login-sign-in-with-telegram)). The
 > bot writes to Postgres directly with `DATABASE_URL` (bypasses RLS); the
-> dashboard reads with the anon key gated by Row Level Security.
+> dashboard reads with the publishable key gated by Row Level Security.
 
 ## Prerequisites
 
@@ -124,7 +124,7 @@ pnpm --filter @kitacatat/dashboard run dev    # Vite dev server (http://localhos
 
 **What `pnpm dev` does:** runs `supabase start` (applies `supabase/migrations`
 to a local Postgres), then exports the local stack's connection details onto
-`DATABASE_URL` / `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` before launching
+`DATABASE_URL` / `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` before launching
 Turbo. These exported vars override `.env`, so locally your `.env` only needs the
 non-Supabase secrets: `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`,
 `VITE_TELEGRAM_BOT_USERNAME`, and `TESSDATA_PREFIX`.
@@ -234,7 +234,7 @@ path filters so only the changed app redeploys):
 | --- | --- |
 | `SSH_HOST`, `SSH_USER`, `SSH_KEY` (private key), `SSH_PORT` (optional) | bot.yml (deploy over SSH) |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | dashboard.yml |
-| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_TELEGRAM_BOT_USERNAME` | dashboard.yml (build-time) |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_TELEGRAM_BOT_USERNAME` | dashboard.yml (build-time) |
 | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD` | supabase.yml |
 
 > The image is pushed to **GHCR** using the built-in `GITHUB_TOKEN` (no secret
