@@ -63,7 +63,9 @@ func Load() (*Config, error) {
 		AIBaseURL:      os.Getenv("AI_BASE_URL"),
 		DatabaseURL:    os.Getenv("DATABASE_URL"),
 		TessdataPrefix: os.Getenv("TESSDATA_PREFIX"),
-		DashboardURL:   firstNonEmpty(os.Getenv("DASHBOARD_URL"), defaultDashboardURL),
+		// TrimSpace guards against a stray trailing space in the env var, which
+		// would otherwise leak into the login link (".../pages.dev /?token=...").
+		DashboardURL:   strings.TrimSpace(firstNonEmpty(os.Getenv("DASHBOARD_URL"), defaultDashboardURL)),
 	}
 	if cfg.AIProvider == "gemini" && cfg.AIModel == "" {
 		cfg.AIModel = DefaultGeminiModel
