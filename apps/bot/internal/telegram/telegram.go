@@ -47,7 +47,6 @@ func (h *Handler) Register(bot *tele.Bot) {
 	bot.Handle("/login", h.handleLogin)
 	bot.Handle(tele.OnText, h.handleText, h.requireLinked)
 	bot.Handle(tele.OnPhoto, h.handlePhoto, h.requireLinked)
-	bot.Handle(tele.OnDocument, h.handleDocument, h.requireLinked)
 }
 
 // requireLinked looks up the profile linked to the sender's Telegram id and
@@ -156,19 +155,6 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("Tidak ada gambar yang bisa dibaca.")
 	}
 	return h.handleImage(c, &photo.File, c.Message().Caption)
-}
-
-// handleDocument handles images sent "as file": only image/* mime types are
-// treated as receipts; anything else is ignored politely.
-func (h *Handler) handleDocument(c tele.Context) error {
-	doc := c.Message().Document
-	if doc == nil {
-		return nil
-	}
-	if !strings.HasPrefix(strings.ToLower(doc.MIME), "image/") {
-		return c.Send("File ini bukan gambar, jadi tidak bisa kubaca sebagai struk.")
-	}
-	return h.handleImage(c, &doc.File, c.Message().Caption)
 }
 
 // handleImage downloads a Telegram file, runs OCR, and parses the result.

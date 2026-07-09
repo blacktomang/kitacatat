@@ -70,6 +70,7 @@ func buildPrompt(text, extraContext string) string {
 	b.WriteString(`You extract personal-finance transactions from Indonesian text.
 
 Rules:
+- The input may contain a user's note (typed by the user) and/or text extracted from an image. The note is a first-class source: it often states the transaction directly (e.g. "kontrol ke klinik spog 1,4jt" -> amount 1400000, description "kontrol ke klinik spog"). If the note states an amount, record that transaction even when the image text has none.
 - Amounts are Indonesian Rupiah. Normalize all of these to a plain integer number of rupiah:
   "Rp50.000" -> 50000, "50.000" -> 50000, "50rb" -> 50000, "5jt" -> 5000000,
   "1.250.000" -> 1250000, "Rp 1.250.000,00" -> 1250000 (drop cents).
@@ -94,11 +95,11 @@ If you cannot find any transaction, return {"transactions":[]}.
 
 `)
 	if strings.TrimSpace(extraContext) != "" {
-		b.WriteString("Extra context (photo caption): ")
+		b.WriteString("User's note (typed by the user; may itself state the transaction):\n")
 		b.WriteString(strings.TrimSpace(extraContext))
 		b.WriteString("\n\n")
 	}
-	b.WriteString("Text to parse:\n")
+	b.WriteString("Text to parse (e.g. text extracted from an image; may be empty or unrelated):\n")
 	b.WriteString(text)
 	return b.String()
 }
