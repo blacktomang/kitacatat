@@ -43,7 +43,7 @@ jobs:
 
       # Pull & restart on the VPS over SSH using a GitHub Deploy Key.
       # The bot long-polls Telegram, so the box needs only outbound internet —
-      # no domain, no open ports. Runtime secrets live in /opt/kitacatat/.env
+      # no domain, no open ports. Runtime secrets live in ~/kitacatat/.env
       # on the VPS, not in GitHub.
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1
@@ -57,5 +57,5 @@ jobs:
             docker pull "$IMAGE:latest"
             docker rm -f kitacatat-bot 2>/dev/null || true
             docker run -d --name kitacatat-bot --restart unless-stopped \
-              --env-file /opt/kitacatat/.env "$IMAGE:latest"
+              --env-file ~/kitacatat/.env "$IMAGE:latest"
             docker image prune -f
