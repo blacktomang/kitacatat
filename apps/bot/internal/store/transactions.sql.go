@@ -14,9 +14,9 @@ import (
 )
 
 const createTransaction = `-- name: CreateTransaction :one
-INSERT INTO transactions (user_id, amount, type, category, description, occurred_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, amount, type, category, description, occurred_at, created_at
+INSERT INTO transactions (user_id, amount, type, category, description, occurred_at, group_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, user_id, amount, type, category, description, occurred_at, created_at, group_id
 `
 
 type CreateTransactionParams struct {
@@ -26,6 +26,7 @@ type CreateTransactionParams struct {
 	Category    string      `json:"category"`
 	Description pgtype.Text `json:"description"`
 	OccurredAt  time.Time   `json:"occurred_at"`
+	GroupID     pgtype.UUID `json:"group_id"`
 }
 
 func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
@@ -36,6 +37,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.Category,
 		arg.Description,
 		arg.OccurredAt,
+		arg.GroupID,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -47,12 +49,13 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.Description,
 		&i.OccurredAt,
 		&i.CreatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT id, user_id, amount, type, category, description, occurred_at, created_at FROM transactions
+SELECT id, user_id, amount, type, category, description, occurred_at, created_at, group_id FROM transactions
 ORDER BY occurred_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -80,6 +83,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Description,
 			&i.OccurredAt,
 			&i.CreatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -92,7 +96,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 }
 
 const listTransactionsByUser = `-- name: ListTransactionsByUser :many
-SELECT id, user_id, amount, type, category, description, occurred_at, created_at FROM transactions
+SELECT id, user_id, amount, type, category, description, occurred_at, created_at, group_id FROM transactions
 WHERE user_id = $1
 ORDER BY occurred_at DESC
 LIMIT $2 OFFSET $3
@@ -122,6 +126,7 @@ func (q *Queries) ListTransactionsByUser(ctx context.Context, arg ListTransactio
 			&i.Description,
 			&i.OccurredAt,
 			&i.CreatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}

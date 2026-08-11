@@ -1,6 +1,6 @@
 -- name: CreateTransaction :one
-INSERT INTO transactions (user_id, amount, type, category, description, occurred_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO transactions (user_id, amount, type, category, description, occurred_at, group_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: ListTransactions :many
