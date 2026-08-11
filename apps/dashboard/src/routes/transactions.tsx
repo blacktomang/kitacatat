@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { BookSelector } from "../components/BookSelector";
 import { Card, Empty, ErrorState, Loading } from "../components/ui";
 import { formatDate, formatRupiah } from "../lib/format";
 import { useTransactions } from "../lib/hooks";
@@ -21,9 +22,11 @@ function Transactions() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("occurred_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [bookId, setBookId] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     let txs = (data ?? []).filter((t) => {
+      if (bookId && t.group_id !== bookId) return false;
       if (type !== "all" && t.type !== type) return false;
       if (category !== "all" && t.category !== category) return false;
       if (search && !(t.description ?? "").toLowerCase().includes(search.toLowerCase()))
@@ -38,7 +41,7 @@ function Transactions() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return txs;
-  }, [data, type, category, search, sortKey, sortDir]);
+  }, [data, type, category, search, sortKey, sortDir, bookId]);
 
   if (isLoading) return <Loading />;
   if (error) return <ErrorState error={error} />;
@@ -57,6 +60,8 @@ function Transactions() {
       <h1 className="text-xl font-bold tracking-tight">Transaksi</h1>
 
       <div className="flex flex-wrap gap-2">
+        <BookSelector selected={bookId} onChange={setBookId} />
+
         <select
           value={type}
           onChange={(e) => setType(e.target.value as TransactionType | "all")}

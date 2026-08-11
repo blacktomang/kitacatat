@@ -19,6 +19,7 @@ export interface Profile {
   telegram_username: string | null;
   display_name: string | null;
   created_at: string;
+  active_book_id?: string | null;
 }
 
 export interface Transaction {
@@ -30,4 +31,20 @@ export interface Transaction {
   description: string | null;
   occurred_at: string;
   created_at: string;
+  group_id: string | null;
+}
+
+export interface Book {
+  id: string;
+  owner_id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface BookWithRole {
+  id: string;
+  owner_id: string;
+  name: string;
+  created_at: string;
+  role: "owner" | "viewer";
 }

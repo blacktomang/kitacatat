@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { BookSelector } from "../components/BookSelector";
 import { ExpensePie, MonthlyBars } from "../components/charts";
 import { Card, ErrorState, Loading, SectionTitle } from "../components/ui";
 import {
@@ -27,10 +28,16 @@ function parseMonthValue(v: string): Date {
 
 function Overview() {
   const [month, setMonth] = useState(() => monthValue(new Date()));
+  const [bookId, setBookId] = useState<string | null>(null);
   const monthRef = parseMonthValue(month);
   const { data, isLoading, error } = useTransactions(monthRef);
 
-  const txs = data ?? [];
+  const txs = useMemo(() => {
+    if (!data) return [];
+    if (!bookId) return data;
+    return data.filter((t) => t.group_id === bookId);
+  }, [data, bookId]);
+
   const totals = monthlyTotals(txs, monthRef);
   const byCategory = expenseByCategory(txs, monthRef);
   const series = monthlySeries(txs, 6, monthRef);
@@ -42,16 +49,19 @@ function Overview() {
           <h1 className="text-xl font-bold tracking-tight">Ringkasan</h1>
           <p className="text-sm text-slate-500">Pemasukan & pengeluaran keluarga</p>
         </div>
-        <label className="flex flex-col text-xs font-medium text-slate-500">
-          Bulan
-          <input
-            type="month"
-            value={month}
-            max={monthValue(new Date())}
-            onChange={(e) => setMonth(e.target.value)}
-            className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-          />
-        </label>
+        <div className="flex gap-3">
+          <BookSelector selected={bookId} onChange={setBookId} />
+          <label className="flex flex-col text-xs font-medium text-slate-500">
+            Bulan
+            <input
+              type="month"
+              value={month}
+              max={monthValue(new Date())}
+              onChange={(e) => setMonth(e.target.value)}
+              className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+            />
+          </label>
+        </div>
       </div>
 
       {isLoading ? (
