@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Group struct {
+	ID        uuid.UUID `json:"id"`
+	OwnerID   uuid.UUID `json:"owner_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type GroupMember struct {
+	GroupID   uuid.UUID `json:"group_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type LoginToken struct {
 	Token            string             `json:"token"`
 	TelegramID       int64              `json:"telegram_id"`
@@ -27,6 +41,7 @@ type Profile struct {
 	DisplayName      pgtype.Text `json:"display_name"`
 	CreatedAt        time.Time   `json:"created_at"`
 	TelegramUsername pgtype.Text `json:"telegram_username"`
+	ActiveBookID     pgtype.UUID `json:"active_book_id"`
 }
 
 type Transaction struct {
@@ -38,4 +53,5 @@ type Transaction struct {
 	Description pgtype.Text `json:"description"`
 	OccurredAt  time.Time   `json:"occurred_at"`
 	CreatedAt   time.Time   `json:"created_at"`
+	GroupID     pgtype.UUID `json:"group_id"`
 }

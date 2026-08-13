@@ -17,6 +17,9 @@ import (
 // ErrNotLinked is returned when no profile is linked to a given Telegram id.
 var ErrNotLinked = errors.New("telegram account not linked to any profile")
 
+// ErrUserNotFound is returned when a Telegram username lookup finds no match.
+var ErrUserNotFound = errors.New("pengguna tidak ditemukan")
+
 // Store wraps the pgx connection pool and the sqlc-generated Queries, exposing
 // a small domain-oriented API to the rest of the app.
 type Store struct {
@@ -46,10 +49,15 @@ func (s *Store) Close() {
 
 // SaveTransaction persists a single validated domain.Transaction owned by the
 // given profile, returning the stored row (with its generated id/created_at).
-func (s *Store) SaveTransaction(ctx context.Context, profileID uuid.UUID, t domain.Transaction) (Transaction, error) {
+// If groupID is uuid.Nil the transaction is saved without a book.
+func (s *Store) SaveTransaction(ctx context.Context, profileID uuid.UUID, groupID uuid.UUID, t domain.Transaction) (Transaction, error) {
 	var desc pgtype.Text
 	if t.Description != "" {
 		desc = pgtype.Text{String: t.Description, Valid: true}
+	}
+	var gid pgtype.UUID
+	if groupID != uuid.Nil {
+		gid = pgtype.UUID{Bytes: groupID, Valid: true}
 	}
 	return s.q.CreateTransaction(ctx, CreateTransactionParams{
 		UserID:      profileID,
@@ -58,6 +66,7 @@ func (s *Store) SaveTransaction(ctx context.Context, profileID uuid.UUID, t doma
 		Category:    string(t.Category),
 		Description: desc,
 		OccurredAt:  t.OccurredAt,
+		GroupID:     gid,
 	})
 }
 

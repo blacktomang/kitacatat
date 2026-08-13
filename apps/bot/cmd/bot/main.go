@@ -65,6 +65,10 @@ func run() error {
 
 	telegram.New(aiClient, ocrEngine, st, cfg.DashboardURL).Register(bot)
 
+	if err := setCommands(bot); err != nil {
+		log.Printf("set bot commands: %v", err)
+	}
+
 	// Graceful shutdown on SIGINT/SIGTERM.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -77,4 +81,14 @@ func run() error {
 	log.Println("bot started (access is granted to linked dashboard accounts)")
 	bot.Start() // blocks until bot.Stop()
 	return nil
+}
+
+// setCommands registers the slash-command menu shown by Telegram, so it stays
+// in sync automatically instead of requiring a manual BotFather /setcommands.
+func setCommands(bot *tele.Bot) error {
+	return bot.SetCommands([]tele.Command{
+		{Text: "start", Description: "Mulai / sambut"},
+		{Text: "login", Description: "Tautan masuk dashboard"},
+		{Text: "buku", Description: "Daftar / buat / pindah buku"},
+	})
 }
