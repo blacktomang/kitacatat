@@ -61,13 +61,15 @@ export function useBooks() {
         .eq("user_id", userId!);
 
       if (error) throw error;
-      return (data ?? []).map((row: any) => ({
-        id: row.groups.id,
-        owner_id: row.groups.owner_id,
-        name: row.groups.name,
-        created_at: row.groups.created_at,
-        role: row.role,
-      }));
+      return (data ?? []).flatMap((row) =>
+        row.groups.map((group) => ({
+          id: group.id,
+          owner_id: group.owner_id,
+          name: group.name,
+          created_at: group.created_at,
+          role: row.role,
+        })),
+      );
     },
   });
 }
