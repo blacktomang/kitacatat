@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "apps/bot/**"
+      - "supabase/migrations/**"
       - ".github/workflows/bot.yml"
   workflow_dispatch:
 
