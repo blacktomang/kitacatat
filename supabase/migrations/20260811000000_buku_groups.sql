@@ -22,6 +22,18 @@ create table public.groups (
 
 alter table public.groups enable row level security;
 
+-- ── group_members ────────────────────────────────────────────────────────────
+create table public.group_members (
+    group_id    uuid        not null references public.groups (id) on delete cascade,
+    user_id     uuid        not null references public.profiles (id) on delete cascade,
+    role        text        not null check (role in ('owner', 'viewer')),
+    created_at  timestamptz not null default now(),
+    primary key (group_id, user_id)
+);
+
+alter table public.group_members enable row level security;
+
+-- ── groups policies ──────────────────────────────────────────────────────────
 -- Members (including the owner) can read the group details.
 create policy "groups: read member"
     on public.groups for select
@@ -39,17 +51,7 @@ create policy "groups: delete owner"
 
 grant select, insert, delete on public.groups to authenticated;
 
--- ── group_members ────────────────────────────────────────────────────────────
-create table public.group_members (
-    group_id    uuid        not null references public.groups (id) on delete cascade,
-    user_id     uuid        not null references public.profiles (id) on delete cascade,
-    role        text        not null check (role in ('owner', 'viewer')),
-    created_at  timestamptz not null default now(),
-    primary key (group_id, user_id)
-);
-
-alter table public.group_members enable row level security;
-
+-- ── group_members policies ───────────────────────────────────────────────────
 -- Owners can insert and delete members.
 create policy "group_members: manage owner"
     on public.group_members for all
