@@ -20,3 +20,4 @@ apps/bot/bot
 
 # TanStack Router generated
 apps/dashboard/src/routeTree.gen.ts
+.commandcode/

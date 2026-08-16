@@ -12,7 +12,7 @@ import (
 )
 
 const getProfileByTelegramID = `-- name: GetProfileByTelegramID :one
-SELECT id, telegram_id, display_name, created_at, telegram_username FROM profiles
+SELECT id, telegram_id, display_name, created_at, telegram_username, active_book_id FROM profiles
 WHERE telegram_id = $1
 `
 
@@ -25,6 +25,26 @@ func (q *Queries) GetProfileByTelegramID(ctx context.Context, telegramID pgtype.
 		&i.DisplayName,
 		&i.CreatedAt,
 		&i.TelegramUsername,
+		&i.ActiveBookID,
+	)
+	return i, err
+}
+
+const getProfileByTelegramUsername = `-- name: GetProfileByTelegramUsername :one
+SELECT id, telegram_id, display_name, created_at, telegram_username, active_book_id FROM profiles
+WHERE telegram_username = $1
+`
+
+func (q *Queries) GetProfileByTelegramUsername(ctx context.Context, telegramUsername pgtype.Text) (Profile, error) {
+	row := q.db.QueryRow(ctx, getProfileByTelegramUsername, telegramUsername)
+	var i Profile
+	err := row.Scan(
+		&i.ID,
+		&i.TelegramID,
+		&i.DisplayName,
+		&i.CreatedAt,
+		&i.TelegramUsername,
+		&i.ActiveBookID,
 	)
 	return i, err
 }

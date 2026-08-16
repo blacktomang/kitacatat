@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	tele "gopkg.in/telebot.v3"
 
 	"github.com/kitacatat/bot/internal/ai"
@@ -47,9 +49,9 @@ func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store, dashboardURL 
 func (h *Handler) Register(bot *tele.Bot) {
 	bot.Handle("/start", h.requireAllowed(h.handleStart))
 	bot.Handle("/login", h.requireAllowed(h.handleLogin))
+	bot.Handle("/buku", h.requireAllowed(h.handleBuku))
 	bot.Handle(tele.OnText, h.requireAllowed(h.handleText), h.requireLinked)
 	bot.Handle(tele.OnPhoto, h.requireAllowed(h.handlePhoto), h.requireLinked)
-	bot.Handle(tele.OnDocument, h.requireAllowed(h.handleDocument), h.requireLinked)
 }
 
 // requireAllowed blocks Telegram users not on the allowlist. When the
@@ -146,6 +148,306 @@ func (h *Handler) handleLogin(c tele.Context) error {
 	return c.Send("🔐 Tautan masuk dashboard (berlaku 5 menit, sekali pakai):\n" + link)
 }
 
+// handleBuku routes /buku subcommands: list, switch/create, share, unshare,
+// info, leave.
+func (h *Handler) handleBuku(c tele.Context) error {
+	sender := c.Sender()
+	if sender == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	profile, err := h.store.ProfileByTelegramID(ctx, sender.ID)
+	if errors.Is(err, store.ErrNotLinked) {
+		return c.Send("Akun Telegram-mu belum terhubung. Ketik /login dulu ya.")
+	}
+	if err != nil {
+		log.Printf("buku: lookup profile: %v", err)
+		return c.Send("Maaf, ada masalah. Coba lagi ya.")
+	}
+
+	arg := strings.TrimSpace(strings.TrimPrefix(c.Text(), "/buku"))
+	parts := strings.Fields(arg)
+
+	// /buku (no args) → list
+	if len(parts) == 0 {
+		return h.bukuList(c, profile.ID)
+	}
+
+	cmd := parts[0]
+
+	switch cmd {
+	case "bagikan", "share":
+		return h.bukuShare(c, profile.ID, parts[1:])
+	case "hapus-bagian", "unshare":
+		return h.bukuUnshare(c, profile.ID, parts[1:])
+	case "info":
+		return h.bukuInfo(c, profile.ID, parts[1:])
+	case "keluar", "leave":
+		return h.bukuLeave(c, profile.ID, parts[1:])
+	default:
+		// /buku <name> → switch to existing or create
+		return h.bukuSwitchOrCreate(c, profile, arg)
+	}
+}
+
+func (h *Handler) bukuList(c tele.Context, profileID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	books, err := h.store.ListBooks(ctx, profileID)
+	if err != nil {
+		log.Printf("buku list: %v", err)
+		return c.Send("Gagal memuat daftar buku.")
+	}
+	if len(books) == 0 {
+		return c.Send("Kamu belum punya buku. Kirim /buku <nama> untuk membuat.")
+	}
+
+	// Fetch fresh profile for active book ID.
+	p, err := h.store.ProfileByTelegramID(ctx, c.Sender().ID)
+	if err != nil {
+		log.Printf("buku list: refresh profile: %v", err)
+		return c.Send("Gagal memuat daftar buku.")
+	}
+	activeID := uuid.Nil
+	if p.ActiveBookID.Valid {
+		activeID = uuid.UUID(p.ActiveBookID.Bytes)
+	}
+
+	var b strings.Builder
+	b.WriteString("📚 Buku-mu:\n")
+	for _, book := range books {
+		marker := ""
+		shared := ""
+		if book.ID == activeID {
+			marker = " (aktif)"
+		}
+		if book.Role != "owner" {
+			shared = " (dibagikan)"
+		}
+		fmt.Fprintf(&b, "• %s%s%s\n", book.Name, marker, shared)
+	}
+	b.WriteString("\nKirim /buku <nama> untuk beralih.")
+	return c.Send(b.String())
+}
+
+func (h *Handler) bukuSwitchOrCreate(c tele.Context, profile store.Profile, name string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Try to find an existing book by this name — first by ownership, then by
+	// shared membership.
+	book, err := h.store.GetBookByOwnerAndName(ctx, profile.ID, name)
+	if errors.Is(err, store.ErrBookNotFound) {
+		// Not an owned book — check shared memberships.
+		bwr, sbErr := h.store.GetBookForUserByName(ctx, profile.ID, name)
+		if sbErr != nil {
+			// Book doesn't exist at all — create it.
+			return h.bukuCreate(ctx, profile, name, c)
+		}
+		book = bwr.Group
+	} else if err != nil {
+		log.Printf("buku switch: %v", err)
+		return c.Send("Gagal beralih buku.")
+	}
+
+	if err := h.store.SetActiveBook(ctx, profile.ID, book.ID); err != nil {
+		log.Printf("buku switch: %v", err)
+		return c.Send("Gagal beralih buku.")
+	}
+	return c.Send(fmt.Sprintf("✅ Buku \"%s\" aktif. Transaksi selanjutnya akan dicatat di sini.", book.Name))
+}
+
+func (h *Handler) bukuCreate(ctx context.Context, profile store.Profile, name string, c tele.Context) error {
+	book, err := h.store.CreateBook(ctx, profile.ID, name)
+	if errors.Is(err, store.ErrBookNameTaken) {
+		return c.Send("Kamu sudah punya buku dengan nama itu.")
+	}
+	if err != nil {
+		log.Printf("buku create: %v", err)
+		return c.Send("Gagal membuat buku.")
+	}
+
+	if err := h.store.SetActiveBook(ctx, profile.ID, book.ID); err != nil {
+		log.Printf("buku set active after create: %v", err)
+	}
+	return c.Send(fmt.Sprintf("✅ Buku \"%s\" dibuat dan jadi aktif.", book.Name))
+}
+
+func (h *Handler) bukuShare(c tele.Context, profileID uuid.UUID, args []string) error {
+	if len(args) < 2 {
+		return c.Send("Gunakan: /buku bagikan <nama-buku> @username")
+	}
+	bookName, username := args[0], strings.TrimPrefix(args[1], "@")
+	if username == "" {
+		return c.Send("Gunakan: /buku bagikan <nama-buku> @username")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	book, err := h.store.GetBookByOwnerAndName(ctx, profileID, bookName)
+	if errors.Is(err, store.ErrBookNotFound) {
+		return c.Send("Buku tidak ditemukan.")
+	}
+	if err != nil {
+		log.Printf("buku share: %v", err)
+		return c.Send("Gagal mencari buku.")
+	}
+
+	if book.OwnerID != profileID {
+		return c.Send("Hanya pemilik yang bisa membagikan buku.")
+	}
+
+	targetProfile, err := h.store.ProfileByTelegramUsername(ctx, username)
+	if errors.Is(err, store.ErrUserNotFound) {
+		return c.Send(fmt.Sprintf("Pengguna @%s tidak ditemukan. Pastikan mereka sudah login ke dashboard.", username))
+	}
+	if err != nil {
+		log.Printf("buku share: lookup user: %v", err)
+		return c.Send("Gagal mencari pengguna.")
+	}
+
+	if _, err := h.store.GetGroupMember(ctx, book.ID, targetProfile.ID); err == nil {
+		return c.Send(fmt.Sprintf("@%s sudah jadi anggota buku ini.", username))
+	}
+
+	if err := h.store.AddGroupMember(ctx, book.ID, targetProfile.ID, "viewer"); err != nil {
+		log.Printf("buku share: add member: %v", err)
+		return c.Send("Gagal membagikan buku.")
+	}
+
+	return c.Send(fmt.Sprintf("✅ Buku \"%s\" dibagikan ke @%s (read-only).", book.Name, username))
+}
+
+func (h *Handler) bukuUnshare(c tele.Context, profileID uuid.UUID, args []string) error {
+	if len(args) < 2 {
+		return c.Send("Gunakan: /buku hapus-bagian <nama-buku> @username")
+	}
+	bookName, username := args[0], strings.TrimPrefix(args[1], "@")
+	if username == "" {
+		return c.Send("Gunakan: /buku hapus-bagian <nama-buku> @username")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	book, err := h.store.GetBookByOwnerAndName(ctx, profileID, bookName)
+	if errors.Is(err, store.ErrBookNotFound) {
+		return c.Send("Buku tidak ditemukan.")
+	}
+	if err != nil {
+		log.Printf("buku unshare: %v", err)
+		return c.Send("Gagal mencari buku.")
+	}
+
+	if book.OwnerID != profileID {
+		return c.Send("Hanya pemilik yang bisa mengelola anggota.")
+	}
+
+	targetProfile, err := h.store.ProfileByTelegramUsername(ctx, username)
+	if errors.Is(err, store.ErrUserNotFound) {
+		return c.Send(fmt.Sprintf("Pengguna @%s tidak ditemukan.", username))
+	}
+	if err != nil {
+		log.Printf("buku unshare: lookup user: %v", err)
+		return c.Send("Gagal mencari pengguna.")
+	}
+
+	if err := h.store.RemoveGroupMember(ctx, book.ID, targetProfile.ID); err != nil {
+		log.Printf("buku unshare: %v", err)
+		return c.Send("Gagal menghapus anggota.")
+	}
+
+	return c.Send(fmt.Sprintf("✅ Akses @%s ke buku \"%s\" dihapus.", username, book.Name))
+}
+
+func (h *Handler) bukuInfo(c tele.Context, profileID uuid.UUID, args []string) error {
+	if len(args) < 1 {
+		return c.Send("Gunakan: /buku info <nama-buku>")
+	}
+	_ = profileID
+	name := args[0]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	book, err := h.store.GetBookByOwnerAndName(ctx, profileID, name)
+	if errors.Is(err, store.ErrBookNotFound) {
+		// Could be a shared book — search all books.
+		books, listErr := h.store.ListBooks(ctx, profileID)
+		if listErr != nil {
+			return c.Send("Buku tidak ditemukan.")
+		}
+		found := false
+		for _, b := range books {
+			if b.Name == name {
+				book = b.Group
+				found = true
+				break
+			}
+		}
+		if !found {
+			return c.Send("Buku tidak ditemukan.")
+		}
+	}
+	if err != nil {
+		log.Printf("buku info: %v", err)
+		return c.Send("Gagal mencari buku.")
+	}
+
+	// Get members — we only have group_members but need profile display names.
+	// The sqlc Query doesn't have a "list members" query. For now show minimal info.
+	return c.Send(fmt.Sprintf("📚 \"%s\"\nPemilik: kamu", book.Name))
+}
+
+func (h *Handler) bukuLeave(c tele.Context, profileID uuid.UUID, args []string) error {
+	if len(args) < 1 {
+		return c.Send("Gunakan: /buku keluar <nama-buku>")
+	}
+	name := args[0]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	books, err := h.store.ListBooks(ctx, profileID)
+	if err != nil {
+		log.Printf("buku leave: %v", err)
+		return c.Send("Gagal memuat buku.")
+	}
+
+	var book store.BookWithRole
+	found := false
+	for _, b := range books {
+		if b.Name == name {
+			book = b
+			found = true
+			break
+		}
+	}
+	if !found {
+		return c.Send("Buku tidak ditemukan.")
+	}
+	if book.Role == "owner" {
+		return c.Send("Kamu adalah pemilik buku ini. Kalau mau menghapus, hapus dari dashboard atau hubungi admin.")
+	}
+
+	if err := h.store.RemoveGroupMember(ctx, book.ID, profileID); err != nil {
+		log.Printf("buku leave: %v", err)
+		return c.Send("Gagal keluar dari buku.")
+	}
+
+	// Clear active book if it was this one.
+	p, _ := h.store.ProfileByTelegramID(ctx, c.Sender().ID)
+	if p.ActiveBookID.Valid && uuid.UUID(p.ActiveBookID.Bytes) == book.ID {
+		_ = h.store.SetActiveBook(ctx, profileID, uuid.Nil)
+	}
+
+	return c.Send(fmt.Sprintf("✅ Kamu keluar dari buku \"%s\".", book.Name))
+}
+
 func displayNameFor(u *tele.User) string {
 	if u.Username != "" {
 		return "@" + u.Username
@@ -177,19 +479,6 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("Tidak ada gambar yang bisa dibaca.")
 	}
 	return h.handleImage(c, &photo.File, c.Message().Caption)
-}
-
-// handleDocument handles images sent "as file": only image/* mime types are
-// treated as receipts; anything else is ignored politely.
-func (h *Handler) handleDocument(c tele.Context) error {
-	doc := c.Message().Document
-	if doc == nil {
-		return nil
-	}
-	if !strings.HasPrefix(strings.ToLower(doc.MIME), "image/") {
-		return c.Send("File ini bukan gambar, jadi tidak bisa kubaca sebagai struk.")
-	}
-	return h.handleImage(c, &doc.File, c.Message().Caption)
 }
 
 // handleImage downloads a Telegram file, runs OCR, and parses the result.
@@ -233,8 +522,32 @@ func (h *Handler) parseAndReply(c tele.Context, text, caption string) error {
 
 	profile, ok := c.Get("profile").(store.Profile)
 	if !ok {
-		// requireLinked always sets this; guard defensively.
 		return c.Send("Akun belum terhubung.")
+	}
+
+	// Resolve active book.
+	groupID := uuid.Nil
+	var groupName string
+	if profile.ActiveBookID.Valid {
+		bid := uuid.UUID(profile.ActiveBookID.Bytes)
+		book, err := h.store.GetBook(ctx, bid)
+		if errors.Is(err, store.ErrBookNotFound) {
+			_ = h.store.SetActiveBook(ctx, profile.ID, uuid.Nil)
+		} else if err != nil {
+			log.Printf("resolve active book: %v", err)
+		} else {
+			member, err := h.store.GetGroupMember(ctx, book.ID, profile.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				_ = h.store.SetActiveBook(ctx, profile.ID, uuid.Nil)
+			} else if err != nil {
+				log.Printf("resolve active book member: %v", err)
+			} else if member.Role == "viewer" {
+				return c.Send("Kamu hanya bisa melihat buku \"" + book.Name + "\", tidak bisa menambah transaksi.")
+			} else {
+				groupID = book.ID
+				groupName = book.Name
+			}
+		}
 	}
 
 	candidates, err := h.ai.ParseTransactions(ctx, text, caption)
@@ -255,7 +568,7 @@ func (h *Handler) parseAndReply(c tele.Context, text, caption string) error {
 			log.Printf("dropping invalid transaction: %v", err)
 			continue
 		}
-		if _, err := h.store.SaveTransaction(ctx, profile.ID, t); err != nil {
+		if _, err := h.store.SaveTransaction(ctx, profile.ID, groupID, t); err != nil {
 			log.Printf("save transaction: %v", err)
 			continue
 		}
@@ -267,13 +580,15 @@ func (h *Handler) parseAndReply(c tele.Context, text, caption string) error {
 			"Coba tulis lebih jelas, mis. \"makan siang 50rb\".")
 	}
 
-	return c.Send(formatSummary(saved))
+	return c.Send(formatSummary(saved, groupName))
 }
 
 // formatSummary builds the Indonesian confirmation message.
-func formatSummary(txs []domain.Transaction) string {
+func formatSummary(txs []domain.Transaction, bookName string) string {
 	var b strings.Builder
-	if len(txs) == 1 {
+	if bookName != "" {
+		fmt.Fprintf(&b, "✅ Dicatat ke \"%s\":\n", bookName)
+	} else if len(txs) == 1 {
 		b.WriteString("✅ Dicatat:\n")
 	} else {
 		fmt.Fprintf(&b, "✅ %d transaksi dicatat:\n", len(txs))

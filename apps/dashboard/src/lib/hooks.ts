@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "./supabase";
 import { monthWindow } from "./analytics";
 import { useAuth } from "./auth";
-import type { Profile, Transaction } from "./types";
+import type { BookWithRole, Profile, Transaction } from "./types";
 
 /** The current user's profile row, including Telegram link status. */
 export function useProfile() {
@@ -43,6 +43,33 @@ export function useTransactions(monthRef: Date = new Date()) {
 
       if (error) throw error;
       return data ?? [];
+    },
+  });
+}
+
+/** All books the current user is a member of (owned + shared). */
+export function useBooks() {
+  const { session } = useAuth();
+  const userId = session?.user.id;
+  return useQuery({
+    queryKey: ["books", userId],
+    enabled: !!userId,
+    queryFn: async (): Promise<BookWithRole[]> => {
+      const { data, error } = await supabase
+        .from("group_members")
+        .select("group_id, role, groups(id, owner_id, name, created_at)")
+        .eq("user_id", userId!);
+
+      if (error) throw error;
+      return (data ?? []).flatMap((row) =>
+        row.groups.map((group) => ({
+          id: group.id,
+          owner_id: group.owner_id,
+          name: group.name,
+          created_at: group.created_at,
+          role: row.role,
+        })),
+      );
     },
   });
 }
