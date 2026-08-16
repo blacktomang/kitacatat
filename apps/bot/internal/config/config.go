@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -26,6 +27,10 @@ type Config struct {
 	// DashboardURL is the base URL of the dashboard, used to build the /login
 	// link the bot DMs to users.
 	DashboardURL string
+
+	// AllowedTelegramIDs is the allowlist of Telegram user IDs allowed to use
+	// the bot. When empty, access is unrestricted (any linked account).
+	AllowedTelegramIDs map[int64]struct{}
 }
 
 const defaultDashboardURL = "http://localhost:5173"
@@ -65,8 +70,15 @@ func Load() (*Config, error) {
 		TessdataPrefix: os.Getenv("TESSDATA_PREFIX"),
 		// TrimSpace guards against a stray trailing space in the env var, which
 		// would otherwise leak into the login link (".../pages.dev /?token=...").
-		DashboardURL:   strings.TrimSpace(firstNonEmpty(os.Getenv("DASHBOARD_URL"), defaultDashboardURL)),
+		DashboardURL: strings.TrimSpace(firstNonEmpty(os.Getenv("DASHBOARD_URL"), defaultDashboardURL)),
 	}
+
+	allowed, err := parseAllowedTelegramIDs(os.Getenv("ALLOWED_TELEGRAM_IDS"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.AllowedTelegramIDs = allowed
+
 	if cfg.AIProvider == "gemini" && cfg.AIModel == "" {
 		cfg.AIModel = DefaultGeminiModel
 	}
@@ -75,6 +87,24 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// parseAllowedTelegramIDs parses a comma-separated list of Telegram user IDs
+// into a set. An empty value yields an empty set (no restriction).
+func parseAllowedTelegramIDs(raw string) (map[int64]struct{}, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	set := make(map[int64]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ALLOWED_TELEGRAM_IDS %q: %w", part, err)
+		}
+		set[id] = struct{}{}
+	}
+	return set, nil
 }
 
 func (c *Config) validate() error {

@@ -63,7 +63,7 @@ func run() error {
 		return err
 	}
 
-	telegram.New(aiClient, ocrEngine, st, cfg.DashboardURL).Register(bot)
+	telegram.New(aiClient, ocrEngine, st, cfg.DashboardURL, cfg.AllowedTelegramIDs).Register(bot)
 
 	if err := setCommands(bot); err != nil {
 		log.Printf("set bot commands: %v", err)
