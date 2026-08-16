@@ -55,6 +55,7 @@ Put all of these in a `.env` file at the repo root (copy from `.env.example`):
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → **API Keys** → *publishable* key (`sb_publishable_…`). Replaces the legacy anon key. |
 | `VITE_TELEGRAM_BOT_USERNAME` | Your bot's username (without `@`) from BotFather — the login screen links to it so you can DM `/login`. |
 | `TESSDATA_PREFIX` | Path to Tesseract trained data (see install step). macOS Homebrew: `/opt/homebrew/share/tessdata`. |
+| `ALLOWED_TELEGRAM_IDS` | *Optional.* Comma-separated Telegram user IDs allowed to use the bot. Empty = any linked account. |
 
 > **No hardcoded user IDs.** Access is granted by signing into the dashboard
 > with Telegram (see [Login (Sign in with Telegram)](#login-sign-in-with-telegram)). The
@@ -146,10 +147,13 @@ no HTTPS domain required (so it works on `localhost`):
    user whose profile carries the `telegram_id`, and returns a one-time OTP the
    dashboard exchanges for a session.
 
-Logging in *is* the registration, and it's what authorizes the bot — no
-`ALLOWED_USER_IDS`. Registration is capped at **`MAX_PROFILES` (default 2)**
-accounts; returning users always get in. The Supabase session (access + refresh)
-is then managed by Supabase as usual.
+Logging in *is* the registration, and it's what authorizes the bot. Optionally
+restrict the bot to specific Telegram accounts with **`ALLOWED_TELEGRAM_IDS`**
+(comma-separated IDs) — every bot handler is gated on that allowlist, so
+unlisted users are blocked before they can even `/login`. Without it, any
+linked account may use the bot. Registration is capped at **`MAX_PROFILES`
+(default 2)** accounts; returning users always get in. The Supabase session
+(access + refresh) is then managed by Supabase as usual.
 
 One-time setup: deploy the Edge Function (no bot domain needed):
 

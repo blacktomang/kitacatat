@@ -33,23 +33,44 @@ type Handler struct {
 	ocr          *ocr.Engine
 	store        *store.Store
 	dashboardURL string
+	// allowed is the set of Telegram user IDs permitted to use the bot.
+	// nil/empty means any linked account is allowed.
+	allowed map[int64]struct{}
 }
 
 // New constructs a Handler.
-func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store, dashboardURL string) *Handler {
-	return &Handler{ai: parser, ocr: ocrEngine, store: st, dashboardURL: dashboardURL}
+func New(parser ai.Parser, ocrEngine *ocr.Engine, st *store.Store, dashboardURL string, allowed map[int64]struct{}) *Handler {
+	return &Handler{ai: parser, ocr: ocrEngine, store: st, dashboardURL: dashboardURL, allowed: allowed}
 }
 
-// Register attaches handlers. /start is open (it handles account linking),
-// while the catch-all message handlers are gated by requireLinked so only
-// Telegram accounts linked to a dashboard profile are served — no hardcoded
-// allowlist.
+// Register attaches handlers. /start and /login are open to the Telegram API,
+// so every handler is gated by requireAllowed first — only Telegram user IDs
+// in the allowlist (if set) reach the linked-account check.
 func (h *Handler) Register(bot *tele.Bot) {
-	bot.Handle("/start", h.handleStart)
-	bot.Handle("/login", h.handleLogin)
-	bot.Handle("/buku", h.handleBuku)
-	bot.Handle(tele.OnText, h.handleText, h.requireLinked)
-	bot.Handle(tele.OnPhoto, h.handlePhoto, h.requireLinked)
+	bot.Handle("/start", h.requireAllowed(h.handleStart))
+	bot.Handle("/login", h.requireAllowed(h.handleLogin))
+	bot.Handle("/buku", h.requireAllowed(h.handleBuku))
+	bot.Handle(tele.OnText, h.requireAllowed(h.handleText), h.requireLinked)
+	bot.Handle(tele.OnPhoto, h.requireAllowed(h.handlePhoto), h.requireLinked)
+}
+
+// requireAllowed blocks Telegram users not on the allowlist. When the
+// allowlist is empty (not configured) it lets everyone through, preserving
+// the existing behavior.
+func (h *Handler) requireAllowed(next tele.HandlerFunc) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		if len(h.allowed) == 0 {
+			return next(c)
+		}
+		sender := c.Sender()
+		if sender == nil {
+			return nil
+		}
+		if _, ok := h.allowed[sender.ID]; !ok {
+			return c.Send("Maaf, bot ini hanya untuk pengguna tertentu.")
+		}
+		return next(c)
+	}
 }
 
 // requireLinked looks up the profile linked to the sender's Telegram id and
